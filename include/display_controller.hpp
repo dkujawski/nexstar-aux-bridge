@@ -25,11 +25,12 @@ class DisplayController {
  private:
 #if NEXSTAR_DISPLAY_ENABLED
   void renderBoot(const DisplaySnapshot& snapshot);
-  void renderMain(const DisplaySnapshot& snapshot);
-  void renderFault(const DisplaySnapshot& snapshot);
+  void renderMain(const DisplayViewModel& model);
+  void renderFault(const DisplayViewModel& model);
 
   Adafruit_SSD1306 display_;
-  DisplaySnapshot last_snapshot_{};
+  DisplayModel model_{};
+  DisplayViewModel last_view_{};
   std::uint32_t boot_started_ms_{0};
   std::uint32_t last_render_ms_{0};
   bool showing_boot_{false};

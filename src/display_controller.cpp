@@ -77,7 +77,7 @@ bool DisplayController::begin(const DisplaySnapshot& snapshot, const std::uint32
   boot_started_ms_ = now_ms;
   last_render_ms_ = now_ms;
   showing_boot_ = true;
-  last_snapshot_ = snapshot;
+  last_view_ = model_.update(snapshot, now_ms);
   renderBoot(snapshot);
   return true;
 }
@@ -87,12 +87,17 @@ void DisplayController::update(const DisplaySnapshot& snapshot, const std::uint3
     return;
   }
 
+  const DisplayViewModel view = model_.update(snapshot, now_ms);
+
   if (showing_boot_) {
     if (now_ms - boot_started_ms_ < kBootDurationMs) {
       return;
     }
     showing_boot_ = false;
-  } else if (SnapshotsEqual(snapshot, last_snapshot_)) {
+  } else if (SnapshotsEqual(view.snapshot, last_view_.snapshot) &&
+             view.show_rx_activity == last_view_.show_rx_activity &&
+             view.show_tx_activity == last_view_.show_tx_activity &&
+             view.show_fault_overlay == last_view_.show_fault_overlay) {
     return;
   }
 
@@ -100,12 +105,12 @@ void DisplayController::update(const DisplaySnapshot& snapshot, const std::uint3
     return;
   }
 
-  if (snapshot.state == ProjectState::kFault) {
-    renderFault(snapshot);
+  if (view.show_fault_overlay) {
+    renderFault(view);
   } else {
-    renderMain(snapshot);
+    renderMain(view);
   }
-  last_snapshot_ = snapshot;
+  last_view_ = view;
   last_render_ms_ = now_ms;
 }
 
@@ -123,32 +128,41 @@ void DisplayController::renderBoot(const DisplaySnapshot& snapshot) {
   display_.display();
 }
 
-void DisplayController::renderMain(const DisplaySnapshot& snapshot) {
-  char counters[22];
-  std::snprintf(counters, sizeof(counters), "RX:%lu TX:%lu",
+void DisplayController::renderMain(const DisplayViewModel& model) {
+  const DisplaySnapshot& snapshot = model.snapshot;
+  char counters[22]{};
+  char health[22]{};
+  std::snprintf(counters, sizeof(counters), "RX%c%lu TX%c%lu",
+                model.show_rx_activity ? '*' : ':',
                 static_cast<unsigned long>(snapshot.rx_packets),
+                model.show_tx_activity ? '*' : ':',
                 static_cast<unsigned long>(snapshot.tx_packets));
+  if (snapshot.battery_valid) {
+    std::snprintf(health, sizeof(health), "ERR:%lu BAT:%u.%02uV",
+                  static_cast<unsigned long>(snapshot.error_count),
+                  snapshot.battery_millivolts / 1000,
+                  (snapshot.battery_millivolts % 1000) / 10);
+  } else {
+    std::snprintf(health, sizeof(health), "ERR:%lu BAT:--",
+                  static_cast<unsigned long>(snapshot.error_count));
+  }
 
   display_.clearDisplay();
-  DrawHeader(display_, "NEXSTAR AUX");
+  DrawHeader(display_, ProjectStateLabel(snapshot.state));
   display_.setCursor(0, 13);
-  display_.println(ProjectStateLabel(snapshot.state));
+  display_.print("MODE: ");
+  display_.println(ProfileLabel(snapshot.profile));
   display_.print("USB: ");
   display_.println(snapshot.host_ready ? "READY" : "WAITING");
   display_.print("AUX: ");
   display_.println(snapshot.aux_enabled ? "ENABLED" : "DISABLED");
-
-  if (snapshot.state == ProjectState::kSafeBaseline) {
-    display_.println("NEXT: NEX-6 PINS");
-  } else {
-    display_.println(counters);
-    display_.print("ERR: ");
-    display_.println(snapshot.error_count);
-  }
+  display_.println(counters);
+  display_.println(health);
   display_.display();
 }
 
-void DisplayController::renderFault(const DisplaySnapshot& snapshot) {
+void DisplayController::renderFault(const DisplayViewModel& model) {
+  const DisplaySnapshot& snapshot = model.snapshot;
   display_.clearDisplay();
   DrawHeader(display_, "NEXSTAR AUX FAULT");
   display_.setTextSize(2);

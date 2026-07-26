@@ -10,20 +10,24 @@ the scope of this project.
 
 ## Current state
 
-The initial firmware is deliberately fail-closed:
+The firmware remains deliberately fail-closed:
 
-- no AUX pins are configured or driven;
+- candidate AUX control pins are initialized to safe states before services
+  start, while RX/TX bus operation remains disabled;
 - no serial banner or debug text is emitted;
 - Wi-Fi, Bluetooth, and LoRa are not initialized;
 - the firmware idles until the board-support and transport issues are
   implemented.
 
-The onboard OLED is the sole exception to the uninitialized peripherals. It
-shows the truthful provisioning state (`SAFE BASELINE`, `USB: READY`,
-`AUX: DISABLED`, `NEXT: NEX-6 PINS`) without writing to the protocol UART. It
-uses only the display pins named by the PlatformIO Heltec V3 board variant.
-Build the `heltec_v3_headless` environment to compile the display
-implementation and its libraries out.
+The onboard OLED shows mode, host/AUX state, packet activity, counters, errors,
+and battery voltage when available, without writing to the protocol UART.
+Blocking I2C work runs in a low-priority display task fed by a one-element
+snapshot mailbox. Build the `heltec_v3_headless` environment to compile the
+display implementation and its libraries out.
+
+The default build is listen-only. Pin allocation and mandatory bench checks are
+documented in [`docs/pin-allocation.md`](docs/pin-allocation.md); the candidate
+TX path must not be enabled until those checks pass.
 
 This makes the image safe to provision on a board that was previously used by
 another project, but it is not yet a functional AUX bridge.

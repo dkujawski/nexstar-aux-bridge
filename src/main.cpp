@@ -1,8 +1,14 @@
 #include <Arduino.h>
 
-#include "display_controller.hpp"
+#include "board_io.hpp"
+#include "aux_protocol.hpp"
+#include "aux_transmitter.hpp"
+#include "diagnostics.hpp"
+#include "echo_tracker.hpp"
 #include "display_model.hpp"
+#include "display_service.hpp"
 #include "firmware_profile.hpp"
+#include "packet_router.hpp"
 
 #ifndef NEXSTAR_FIRMWARE_VERSION
 #define NEXSTAR_FIRMWARE_VERSION "unknown"
@@ -32,30 +38,28 @@ namespace {
 // will define safe AUX pin states.
 constexpr TickType_t kIdleDelay = pdMS_TO_TICKS(250);
 
-nexstar::DisplayController display;
-nexstar::DisplaySnapshot snapshot{
-    static_cast<nexstar::FirmwareProfile>(NEXSTAR_FIRMWARE_PROFILE),
-    nexstar::ProjectState::kSafeBaseline,
-    true,
-    false,
-    false,
-    false,
-    0,
-    0,
-    0,
-    false,
-    0,
-};
+nexstar::DisplayService display;
+nexstar::DisplaySnapshot snapshot;
+nexstar::Diagnostics diagnostics;
 
 }  // namespace
 
 void setup() {
+  nexstar::InitializeAuxOutputsSafe();
+  snapshot.profile = static_cast<nexstar::FirmwareProfile>(NEXSTAR_FIRMWARE_PROFILE);
+  snapshot.state = nexstar::ProjectState::kSafeBaseline;
+  snapshot.host_ready = true;
+  diagnostics.record({millis(), nexstar::DiagnosticEventCode::kBoot, 0});
+  diagnostics.record({millis(), nexstar::DiagnosticEventCode::kSafeOutputsForced, 0});
+  diagnostics.record({millis(), nexstar::DiagnosticEventCode::kModeSelected,
+                      static_cast<std::uint16_t>(NEXSTAR_FIRMWARE_PROFILE)});
+
 #if NEXSTAR_DISPLAY_DIAGNOSTICS
   Serial.begin(115200);
   delay(200);
 #endif
 
-  const bool display_ready = display.begin(snapshot, millis());
+  const bool display_ready = display.begin(snapshot);
 
 #if NEXSTAR_DISPLAY_DIAGNOSTICS
   Serial.println(display_ready ? "DISPLAY:OK" : "DISPLAY:NOT_FOUND");
@@ -65,6 +69,6 @@ void setup() {
 }
 
 void loop() {
-  display.update(snapshot, millis());
+  display.publish(snapshot);
   vTaskDelay(kIdleDelay);
 }
