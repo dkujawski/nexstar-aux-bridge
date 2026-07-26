@@ -1,5 +1,7 @@
 #include <unity.h>
 
+#include "board_support.hpp"
+#include "diagnostics.hpp"
 #include "display_model.hpp"
 #include "firmware_profile.hpp"
 
@@ -13,12 +15,43 @@ void test_known_profiles_are_valid() {
   TEST_ASSERT_TRUE(nexstar::IsValidProfile(
       static_cast<std::uint8_t>(nexstar::FirmwareProfile::kListenOnly)));
   TEST_ASSERT_FALSE(nexstar::IsValidProfile(0));
-  TEST_ASSERT_FALSE(nexstar::IsValidProfile(3));
+  TEST_ASSERT_TRUE(nexstar::IsValidProfile(
+      static_cast<std::uint8_t>(nexstar::FirmwareProfile::kDiagnostic)));
+  TEST_ASSERT_FALSE(nexstar::IsValidProfile(4));
 }
 
 void test_only_bridge_profile_may_transmit_aux() {
   TEST_ASSERT_TRUE(nexstar::MayTransmitAux(nexstar::FirmwareProfile::kBridge));
   TEST_ASSERT_FALSE(nexstar::MayTransmitAux(nexstar::FirmwareProfile::kListenOnly));
+  TEST_ASSERT_FALSE(nexstar::MayTransmitAux(nexstar::FirmwareProfile::kDiagnostic));
+}
+
+void test_diagnostics_are_bounded_and_counters_saturate() {
+  nexstar::Diagnostics diagnostics;
+  diagnostics.increment(nexstar::DiagnosticCounter::kParserFailures);
+  TEST_ASSERT_EQUAL_UINT32(
+      1, diagnostics.count(nexstar::DiagnosticCounter::kParserFailures));
+
+  for (std::size_t index = 0;
+       index < nexstar::Diagnostics::kEventCapacity + 3; ++index) {
+    diagnostics.record(
+        {static_cast<std::uint32_t>(index),
+         nexstar::DiagnosticEventCode::kParserFailure,
+         static_cast<std::uint16_t>(index)});
+  }
+  TEST_ASSERT_EQUAL_UINT32(nexstar::Diagnostics::kEventCapacity,
+                           diagnostics.eventCount());
+  TEST_ASSERT_EQUAL_UINT32(3, diagnostics.event(0).timestamp_ms);
+  TEST_ASSERT_EQUAL_UINT32(
+      nexstar::Diagnostics::kEventCapacity + 2,
+      diagnostics.event(nexstar::Diagnostics::kEventCapacity - 1).timestamp_ms);
+}
+
+void test_aux_pin_contract_is_unique_and_avoids_board_functions() {
+  TEST_ASSERT_TRUE(nexstar::AuxPinsAreDistinct());
+  TEST_ASSERT_TRUE(nexstar::AuxPinsAvoidBoardFunctions());
+  TEST_ASSERT_TRUE(nexstar::BoardPolarity::kAuxTxDisabledLevel);
+  TEST_ASSERT_FALSE(nexstar::BoardPolarity::kAuxBusyReleasedLevel);
 }
 
 void test_display_model_describes_current_safe_state() {
@@ -27,7 +60,7 @@ void test_display_model_describes_current_safe_state() {
   snapshot.state = nexstar::ProjectState::kSafeBaseline;
   snapshot.host_ready = true;
 
-  TEST_ASSERT_EQUAL_STRING("BRIDGE", nexstar::ProfileLabel(snapshot.profile));
+  TEST_ASSERT_EQUAL_STRING("USB BRIDGE", nexstar::ProfileLabel(snapshot.profile));
   TEST_ASSERT_EQUAL_STRING("SAFE BASELINE", nexstar::ProjectStateLabel(snapshot.state));
   TEST_ASSERT_FALSE(snapshot.aux_enabled);
 }
@@ -41,11 +74,51 @@ void test_display_snapshot_change_detection_covers_status_fields() {
   TEST_ASSERT_FALSE(nexstar::SnapshotsEqual(before, after));
 }
 
+void test_display_model_latches_packet_activity_without_per_byte_redraw_state() {
+  nexstar::DisplayModel model;
+  nexstar::DisplaySnapshot snapshot{};
+
+  auto view = model.update(snapshot, 100);
+  TEST_ASSERT_FALSE(view.show_rx_activity);
+  TEST_ASSERT_FALSE(view.show_tx_activity);
+
+  snapshot.rx_packets = 1;
+  view = model.update(snapshot, 200);
+  TEST_ASSERT_TRUE(view.show_rx_activity);
+  TEST_ASSERT_FALSE(view.show_tx_activity);
+
+  view = model.update(snapshot, 949);
+  TEST_ASSERT_TRUE(view.show_rx_activity);
+  view = model.update(snapshot, 950);
+  TEST_ASSERT_FALSE(view.show_rx_activity);
+}
+
+void test_display_model_fault_overlay_is_temporary() {
+  nexstar::DisplayModel model;
+  nexstar::DisplaySnapshot snapshot{};
+  model.update(snapshot, 100);
+
+  snapshot.state = nexstar::ProjectState::kFault;
+  snapshot.error_count = 1;
+  auto view = model.update(snapshot, 200);
+  TEST_ASSERT_TRUE(view.show_fault_overlay);
+
+  view = model.update(snapshot, 2199);
+  TEST_ASSERT_TRUE(view.show_fault_overlay);
+  view = model.update(snapshot, 2200);
+  TEST_ASSERT_FALSE(view.show_fault_overlay);
+  TEST_ASSERT_EQUAL_STRING("FAULT", nexstar::ProjectStateLabel(view.snapshot.state));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_known_profiles_are_valid);
   RUN_TEST(test_only_bridge_profile_may_transmit_aux);
+  RUN_TEST(test_aux_pin_contract_is_unique_and_avoids_board_functions);
+  RUN_TEST(test_diagnostics_are_bounded_and_counters_saturate);
   RUN_TEST(test_display_model_describes_current_safe_state);
   RUN_TEST(test_display_snapshot_change_detection_covers_status_fields);
+  RUN_TEST(test_display_model_latches_packet_activity_without_per_byte_redraw_state);
+  RUN_TEST(test_display_model_fault_overlay_is_temporary);
   return UNITY_END();
 }

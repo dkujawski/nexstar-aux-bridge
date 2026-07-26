@@ -1,21 +1,13 @@
 #pragma once
 
-#include <cstdint>
+#include "operating_mode.hpp"
 
 namespace nexstar {
 
-enum class FirmwareProfile : std::uint8_t {
-  kBridge = 1,
-  kListenOnly = 2,
-};
+using FirmwareProfile = OperatingMode;
 
 constexpr bool IsValidProfile(const std::uint8_t profile) {
-  return profile == static_cast<std::uint8_t>(FirmwareProfile::kBridge) ||
-         profile == static_cast<std::uint8_t>(FirmwareProfile::kListenOnly);
-}
-
-constexpr bool MayTransmitAux(const FirmwareProfile profile) {
-  return profile == FirmwareProfile::kBridge;
+  return IsValidOperatingMode(profile);
 }
 
 }  // namespace nexstar

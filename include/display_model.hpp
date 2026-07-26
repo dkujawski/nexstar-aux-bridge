@@ -26,8 +26,54 @@ struct DisplaySnapshot {
   std::uint16_t battery_millivolts{0};
 };
 
+struct DisplayViewModel {
+  DisplaySnapshot snapshot{};
+  bool show_rx_activity{false};
+  bool show_tx_activity{false};
+  bool show_fault_overlay{false};
+};
+
+class DisplayModel {
+ public:
+  static constexpr std::uint32_t kActivityHoldMs = 750;
+  static constexpr std::uint32_t kFaultOverlayMs = 2000;
+
+  DisplayViewModel update(const DisplaySnapshot& snapshot, std::uint32_t now_ms) {
+    if (snapshot.rx_active || snapshot.rx_packets != last_snapshot_.rx_packets) {
+      rx_activity_until_ms_ = now_ms + kActivityHoldMs;
+    }
+    if (snapshot.tx_active || snapshot.tx_packets != last_snapshot_.tx_packets) {
+      tx_activity_until_ms_ = now_ms + kActivityHoldMs;
+    }
+    if ((snapshot.state == ProjectState::kFault &&
+         last_snapshot_.state != ProjectState::kFault) ||
+        snapshot.error_count != last_snapshot_.error_count) {
+      fault_overlay_until_ms_ = now_ms + kFaultOverlayMs;
+    }
+
+    last_snapshot_ = snapshot;
+    return {
+        snapshot,
+        DeadlinePending(now_ms, rx_activity_until_ms_),
+        DeadlinePending(now_ms, tx_activity_until_ms_),
+        DeadlinePending(now_ms, fault_overlay_until_ms_),
+    };
+  }
+
+ private:
+  static constexpr bool DeadlinePending(const std::uint32_t now_ms,
+                                        const std::uint32_t deadline_ms) {
+    return static_cast<std::int32_t>(deadline_ms - now_ms) > 0;
+  }
+
+  DisplaySnapshot last_snapshot_{};
+  std::uint32_t rx_activity_until_ms_{0};
+  std::uint32_t tx_activity_until_ms_{0};
+  std::uint32_t fault_overlay_until_ms_{0};
+};
+
 constexpr const char* ProfileLabel(const FirmwareProfile profile) {
-  return profile == FirmwareProfile::kListenOnly ? "LISTEN ONLY" : "BRIDGE";
+  return OperatingModeLabel(profile);
 }
 
 constexpr const char* ProjectStateLabel(const ProjectState state) {
