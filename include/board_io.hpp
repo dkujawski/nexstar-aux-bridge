@@ -20,7 +20,7 @@ inline void InitializeAuxOutputsSafe() {
   pinMode(BoardPins::kAuxTxEnable, OUTPUT);
   pinMode(BoardPins::kAuxBusyAssert, OUTPUT);
   pinMode(BoardPins::kAuxUartRx, INPUT);
-  pinMode(BoardPins::kAuxBusyIn, INPUT);
+  pinMode(BoardPins::kAuxCtsIn, INPUT);
   pinMode(BoardPins::kAuxUartTx, INPUT);
 }
 
