@@ -56,21 +56,36 @@ void test_listen_only_and_invalid_packets_never_transmit() {
   FakeIo io;
   nexstar::AuxTransmitter transmitter(io);
   TEST_ASSERT_FALSE(
-      transmitter.start(Packet(), nexstar::OperatingMode::kListenOnly, 0));
+      transmitter.start(Packet(), nexstar::OperatingMode::kListenOnly,
+                        nexstar::AuxTxAuthorization::kControlledTest, 0));
+  TEST_ASSERT_FALSE(
+      transmitter.start(Packet(), nexstar::OperatingMode::kBridge,
+                        nexstar::AuxTxAuthorization::kProhibited, 0));
   TEST_ASSERT_FALSE(io.tx_enabled);
   TEST_ASSERT_FALSE(io.busy_asserted);
 
   auto bad = Packet();
   bad.bytes[5] ^= 1;
   TEST_ASSERT_FALSE(
-      transmitter.start(bad, nexstar::OperatingMode::kBridge, 0));
+      transmitter.start(bad, nexstar::OperatingMode::kBridge,
+                        nexstar::AuxTxAuthorization::kControlledTest, 0));
+
+  auto mutating = Packet();
+  mutating.bytes[4] = 0x24;
+  mutating.bytes[5] = nexstar::CalculateAuxChecksum(
+      mutating.bytes.data(), mutating.size - 1);
+  TEST_ASSERT_FALSE(transmitter.start(
+      mutating, nexstar::OperatingMode::kBridge,
+      nexstar::AuxTxAuthorization::kControlledTest, 0));
+  TEST_ASSERT_EQUAL_UINT32(1, transmitter.metrics().rejected_policy);
 }
 
 void test_success_path_waits_for_uart_and_echo_before_safe_release() {
   FakeIo io;
   nexstar::AuxTransmitter transmitter(io);
   TEST_ASSERT_TRUE(
-      transmitter.start(Packet(), nexstar::OperatingMode::kBridge, 0));
+      transmitter.start(Packet(), nexstar::OperatingMode::kBridge,
+                        nexstar::AuxTxAuthorization::kControlledTest, 0));
   AdvanceToDrain(transmitter);
   TEST_ASSERT_TRUE(io.tx_enabled);
   TEST_ASSERT_TRUE(io.busy_asserted);
@@ -100,7 +115,8 @@ void test_contention_retries_are_bounded_then_fault_safe() {
   timing.backoff_us = 5;
   timing.maximum_attempts = 2;
   nexstar::AuxTransmitter transmitter(io, timing);
-  transmitter.start(Packet(), nexstar::OperatingMode::kBridge, 0);
+  transmitter.start(Packet(), nexstar::OperatingMode::kBridge,
+                    nexstar::AuxTxAuthorization::kControlledTest, 0);
 
   transmitter.tick(10);
   transmitter.tick(15);
@@ -115,7 +131,8 @@ void test_write_drain_and_echo_timeouts_force_safe_fault() {
   FakeIo io;
   io.short_write = true;
   nexstar::AuxTransmitter transmitter(io);
-  transmitter.start(Packet(), nexstar::OperatingMode::kBridge, 0);
+  transmitter.start(Packet(), nexstar::OperatingMode::kBridge,
+                    nexstar::AuxTxAuthorization::kControlledTest, 0);
   AdvanceToDrain(transmitter);
   TEST_ASSERT_EQUAL(static_cast<int>(nexstar::AuxTxState::kFault),
                     static_cast<int>(transmitter.state()));
@@ -133,7 +150,8 @@ void test_uart_drain_and_echo_timeout_paths_force_safe_fault() {
   timing.uart_drain_timeout_us = 10;
   timing.echo_timeout_us = 10;
   nexstar::AuxTransmitter transmitter(io, timing);
-  transmitter.start(Packet(), nexstar::OperatingMode::kBridge, 0);
+  transmitter.start(Packet(), nexstar::OperatingMode::kBridge,
+                    nexstar::AuxTxAuthorization::kControlledTest, 0);
   AdvanceToDrain(transmitter);
   transmitter.tick(113);
   TEST_ASSERT_EQUAL(static_cast<int>(nexstar::AuxTxState::kFault),
@@ -143,7 +161,8 @@ void test_uart_drain_and_echo_timeout_paths_force_safe_fault() {
 
   transmitter.recover(200);
   io.tx_complete = true;
-  transmitter.start(Packet(), nexstar::OperatingMode::kBridge, 200);
+  transmitter.start(Packet(), nexstar::OperatingMode::kBridge,
+                    nexstar::AuxTxAuthorization::kControlledTest, 200);
   transmitter.tick(200);
   transmitter.tick(201);
   transmitter.tick(301);
@@ -158,6 +177,53 @@ void test_uart_drain_and_echo_timeout_paths_force_safe_fault() {
   TEST_ASSERT_FALSE(io.busy_asserted);
 }
 
+void test_transaction_timeout_bounds_busy_hold_and_records_fault() {
+  FakeIo io;
+  nexstar::AuxTxTiming timing{};
+  timing.transaction_timeout_us = 25;
+  timing.claim_delay_us = 100;
+  nexstar::AuxTransmitter transmitter(io, timing);
+  TEST_ASSERT_TRUE(transmitter.start(
+      Packet(), nexstar::OperatingMode::kBridge,
+      nexstar::AuxTxAuthorization::kControlledTest, 0));
+  transmitter.tick(0);
+  transmitter.tick(1);
+  transmitter.tick(26);
+
+  TEST_ASSERT_EQUAL(static_cast<int>(nexstar::AuxTxState::kFault),
+                    static_cast<int>(transmitter.state()));
+  TEST_ASSERT_EQUAL(static_cast<int>(nexstar::AuxTxFault::kTransactionTimeout),
+                    static_cast<int>(transmitter.lastFault()));
+  TEST_ASSERT_FALSE(io.tx_enabled);
+  TEST_ASSERT_FALSE(io.busy_asserted);
+  TEST_ASSERT_EQUAL_UINT32(25, transmitter.metrics().maximum_busy_hold_us);
+}
+
+void test_one_thousand_simulated_version_transactions_complete() {
+  FakeIo io;
+  nexstar::AuxTransmitter transmitter(io);
+  for (std::uint32_t exchange = 0; exchange < 1000; ++exchange) {
+    const std::uint32_t base = exchange * 200;
+    io.tx_complete = false;
+    TEST_ASSERT_TRUE(transmitter.start(
+        Packet(), nexstar::OperatingMode::kBridge,
+        nexstar::AuxTxAuthorization::kControlledTest, base));
+    transmitter.tick(base);
+    transmitter.tick(base + 1);
+    transmitter.tick(base + 101);
+    transmitter.tick(base + 102);
+    transmitter.tick(base + 103);
+    io.tx_complete = true;
+    transmitter.tick(base + 104);
+    transmitter.tick(base + 105);
+    transmitter.notifyEchoComplete();
+    transmitter.tick(base + 106);
+    transmitter.tick(base + 107);
+  }
+  TEST_ASSERT_EQUAL_UINT32(1000, transmitter.completedPackets());
+  TEST_ASSERT_EQUAL_UINT32(0, transmitter.faults());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_listen_only_and_invalid_packets_never_transmit);
@@ -165,5 +231,7 @@ int main(int, char**) {
   RUN_TEST(test_contention_retries_are_bounded_then_fault_safe);
   RUN_TEST(test_write_drain_and_echo_timeouts_force_safe_fault);
   RUN_TEST(test_uart_drain_and_echo_timeout_paths_force_safe_fault);
+  RUN_TEST(test_transaction_timeout_bounds_busy_hold_and_records_fault);
+  RUN_TEST(test_one_thousand_simulated_version_transactions_complete);
   return UNITY_END();
 }

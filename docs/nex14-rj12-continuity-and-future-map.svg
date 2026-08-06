@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100">
+  <defs>
+    <style>
+      .title{font:700 50px Arial,sans-serif;fill:#10295a}
+      .sub{font:700 28px Arial,sans-serif;fill:#10295a}
+      .body{font:24px Arial,sans-serif;fill:#172033}
+      .small{font:20px Arial,sans-serif;fill:#172033}
+      .cell{font:22px Arial,sans-serif;fill:#172033}
+      .cellb{font:700 22px Arial,sans-serif;fill:#172033}
+      .warn{font:700 25px Arial,sans-serif;fill:#b31b1b}
+    </style>
+  </defs>
+  <rect width="1600" height="1100" fill="#fff"/>
+  <rect x="24" y="24" width="1552" height="1052" rx="22" fill="none" stroke="#10295a" stroke-width="4"/>
+  <text x="800" y="88" text-anchor="middle" class="title">NEX-14 — RJ12 CONTINUITY &amp; FUTURE SIGNAL MAP</text>
+  <text x="800" y="135" text-anchor="middle" class="sub">Cable-specific continuity mapping completed and verified</text>
+
+  <rect x="90" y="185" width="600" height="335" rx="20" fill="#f7f8fa" stroke="#33405a" stroke-width="4"/>
+  <text x="390" y="230" text-anchor="middle" class="sub">RJ12 (6P6C) FRONT VIEW</text>
+  <text x="390" y="268" text-anchor="middle" class="body">Contacts facing you • retaining tab away</text>
+  <path d="M190 315 H590 V450 H475 L445 485 H335 L305 450 H190 Z" fill="#e9edf2" stroke="#384355" stroke-width="5"/>
+  <g fill="#d6a423" stroke="#7b5a0d" stroke-width="3">
+    <rect x="220" y="335" width="36" height="92"/><rect x="280" y="335" width="36" height="92"/>
+    <rect x="340" y="335" width="36" height="92"/><rect x="400" y="335" width="36" height="92"/>
+    <rect x="460" y="335" width="36" height="92"/><rect x="520" y="335" width="36" height="92"/>
+  </g>
+  <g class="cellb">
+    <text x="238" y="475" text-anchor="middle">1</text><text x="298" y="475" text-anchor="middle">2</text>
+    <text x="358" y="475" text-anchor="middle">3</text><text x="418" y="475" text-anchor="middle">4</text>
+    <text x="478" y="475" text-anchor="middle">5</text><text x="538" y="475" text-anchor="middle">6</text>
+  </g>
+
+  <rect x="735" y="185" width="775" height="335" rx="20" fill="#fff6f6" stroke="#c52121" stroke-width="4"/>
+  <text x="1122" y="235" text-anchor="middle" class="warn">STOP CONDITIONS</text>
+  <text x="780" y="290" class="warn">• Telescope mount disconnected</text>
+  <text x="780" y="337" class="warn">• Heltec USB and battery disconnected</text>
+  <text x="780" y="384" class="warn">• No external 5 V or 12 V applied</text>
+  <text x="780" y="431" class="warn">• RJ12 pin 3 (+12 V) insulated and unused</text>
+  <text x="780" y="478" class="warn">• Do not jumper the RJ12 cable to the Heltec</text>
+
+  <!-- Table -->
+  <rect x="90" y="570" width="1420" height="330" fill="#fff" stroke="#33405a" stroke-width="3"/>
+  <rect x="90" y="570" width="1420" height="55" fill="#10295a"/>
+  <g fill="#fff" font-family="Arial,sans-serif" font-size="22" font-weight="700">
+    <text x="130" y="606">PIN</text><text x="240" y="606">AUX SIGNAL</text>
+    <text x="630" y="606">FUTURE PROTECTED PATH</text><text x="1170" y="606">VERIFIED CABLE RESULT</text>
+  </g>
+  <g stroke="#8a93a3" stroke-width="2">
+    <line x1="190" y1="570" x2="190" y2="900"/><line x1="570" y1="570" x2="570" y2="900"/>
+    <line x1="1130" y1="570" x2="1130" y2="900"/>
+    <line x1="90" y1="670" x2="1510" y2="670"/><line x1="90" y1="716" x2="1510" y2="716"/>
+    <line x1="90" y1="762" x2="1510" y2="762"/><line x1="90" y1="808" x2="1510" y2="808"/>
+    <line x1="90" y1="854" x2="1510" y2="854"/>
+  </g>
+  <g class="cell">
+    <text x="135" y="657" class="cellb">1</text><text x="220" y="657">CTS / BUSY IN</text>
+    <text x="600" y="657">divider/buffer → GPIO6 AUX_BUSY_IN</text><text x="1160" y="657">GRAY • 1.5 Ω • PASS</text>
+    <text x="135" y="703" class="cellb">2</text><text x="220" y="703">DATA FROM MOUNT</text>
+    <text x="600" y="703">divider/buffer → GPIO4 AUX_RX</text><text x="1160" y="703">PURPLE • 0.8 Ω • PASS</text>
+    <text x="135" y="749" class="cellb" fill="#b31b1b">3</text><text x="220" y="749" class="warn">+12 V</text>
+    <text x="600" y="749" class="warn">NO CONNECTION TO HELTEC</text><text x="1160" y="749" class="warn">PINK • 0.9 Ω • ISOLATED</text>
+    <text x="135" y="795" class="cellb">4</text><text x="220" y="795">DATA TO MOUNT</text>
+    <text x="600" y="795">74AHCT125 ← GPIO5; /OE ← GPIO2</text><text x="1160" y="795">GREEN • 1.1 Ω • PASS</text>
+    <text x="135" y="841" class="cellb">5</text><text x="220" y="841">GROUND</text>
+    <text x="600" y="841">future common interface ground</text><text x="1160" y="841">YELLOW • 1.6 Ω • PASS</text>
+    <text x="135" y="887" class="cellb">6</text><text x="220" y="887">RTS / BUSY OUT</text>
+    <text x="600" y="887">open-drain MOSFET ← GPIO7</text><text x="1160" y="887">WHITE • 0.9 Ω • PASS</text>
+  </g>
+
+  <rect x="90" y="925" width="1420" height="125" rx="16" fill="#eef5ff" stroke="#2457a6" stroke-width="3"/>
+  <text x="120" y="962" class="sub">Continuity gate: PASS</text>
+  <text x="120" y="999" class="body">All six pins have one unique conductor; all five non-target conductors remained silent during each test.</text>
+  <text x="120" y="1028" class="small">Colors are valid only for this tested cable. Continue labeling and wiring by RJ12 pin number.</text>
+</svg>

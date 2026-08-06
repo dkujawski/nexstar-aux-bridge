@@ -1,194 +1,114 @@
 #include "display_controller.hpp"
 
 #if NEXSTAR_DISPLAY_ENABLED
-
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
 #include <Arduino.h>
-#include <Wire.h>
+#include <SPI.h>
 
-#include <cstdio>
-
-namespace {
-
-constexpr std::uint8_t kDisplayAddress = 0x3C;
-constexpr std::int16_t kDisplayWidth = 128;
-constexpr std::int16_t kDisplayHeight = 64;
-constexpr std::uint32_t kBootDurationMs = 1800;
-constexpr std::uint32_t kMinimumRenderIntervalMs = 250;
-constexpr std::uint32_t kPowerOffDelayMs = 20;
-constexpr std::uint32_t kPowerSettleDelayMs = 100;
-constexpr std::uint32_t kProbeRetryDelayMs = 25;
-constexpr std::uint8_t kProbeAttempts = 20;
-
-void DrawHeader(Adafruit_SSD1306& display, const char* text) {
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 0);
-  display.print(text);
-  display.drawFastHLine(0, 9, kDisplayWidth, SSD1306_WHITE);
-}
-
-}  // namespace
-
-namespace nexstar {
-
-DisplayController::DisplayController()
-    : display_(kDisplayWidth, kDisplayHeight, &Wire, RST_OLED) {}
-
-bool DisplayController::begin(const DisplaySnapshot& snapshot, const std::uint32_t now_ms) {
-  pinMode(Vext, OUTPUT);
-  digitalWrite(Vext, HIGH);
-  delay(kPowerOffDelayMs);
-  digitalWrite(Vext, LOW);
-
-  pinMode(RST_OLED, OUTPUT);
-  digitalWrite(RST_OLED, LOW);
-  delay(20);
-  digitalWrite(RST_OLED, HIGH);
-  delay(kPowerSettleDelayMs);
-
-  Wire.end();
-  Wire.begin(SDA_OLED, SCL_OLED);
-  Wire.setTimeOut(20);
-
-  bool acknowledged = false;
-  for (std::uint8_t attempt = 0; attempt < kProbeAttempts; ++attempt) {
-    Wire.beginTransmission(kDisplayAddress);
-    if (Wire.endTransmission() == 0) {
-      acknowledged = true;
-      break;
-    }
-    delay(kProbeRetryDelayMs);
-  }
-  if (!acknowledged) {
-    digitalWrite(Vext, HIGH);
-    return false;
-  }
-
-  if (!display_.begin(SSD1306_SWITCHCAPVCC, kDisplayAddress, false, false)) {
-    digitalWrite(Vext, HIGH);
-    return false;
-  }
-
-  display_.dim(false);
-  display_.invertDisplay(false);
-  display_.ssd1306_command(SSD1306_SETCONTRAST);
-  display_.ssd1306_command(0xFF);
-  available_ = true;
-  boot_started_ms_ = now_ms;
-  last_render_ms_ = now_ms;
-  showing_boot_ = true;
-  last_view_ = model_.update(snapshot, now_ms);
-  renderBoot(snapshot);
-  return true;
-}
-
-void DisplayController::update(const DisplaySnapshot& snapshot, const std::uint32_t now_ms) {
-  if (!available_) {
-    return;
-  }
-
-  const DisplayViewModel view = model_.update(snapshot, now_ms);
-
-  if (showing_boot_) {
-    if (now_ms - boot_started_ms_ < kBootDurationMs) {
-      return;
-    }
-    showing_boot_ = false;
-  } else if (SnapshotsEqual(view.snapshot, last_view_.snapshot) &&
-             view.show_rx_activity == last_view_.show_rx_activity &&
-             view.show_tx_activity == last_view_.show_tx_activity &&
-             view.show_fault_overlay == last_view_.show_fault_overlay) {
-    return;
-  }
-
-  if (now_ms - last_render_ms_ < kMinimumRenderIntervalMs) {
-    return;
-  }
-
-  if (view.show_fault_overlay) {
-    renderFault(view);
-  } else {
-    renderMain(view);
-  }
-  last_view_ = view;
-  last_render_ms_ = now_ms;
-}
-
-void DisplayController::renderBoot(const DisplaySnapshot& snapshot) {
-  display_.clearDisplay();
-  DrawHeader(display_, "NEXSTAR AUX BRIDGE");
-  display_.setCursor(0, 14);
-  display_.println("HELTEC V3 / ESP32-S3");
-  display_.print("FW ");
-  display_.println(NEXSTAR_FIRMWARE_VERSION);
-  display_.print("MODE ");
-  display_.println(ProfileLabel(snapshot.profile));
-  display_.println("STARTING DISPLAY");
-  display_.println("AUX OUTPUTS SAFE");
-  display_.display();
-}
-
-void DisplayController::renderMain(const DisplayViewModel& model) {
-  const DisplaySnapshot& snapshot = model.snapshot;
-  char counters[22]{};
-  char health[22]{};
-  std::snprintf(counters, sizeof(counters), "RX%c%lu TX%c%lu",
-                model.show_rx_activity ? '*' : ':',
-                static_cast<unsigned long>(snapshot.rx_packets),
-                model.show_tx_activity ? '*' : ':',
-                static_cast<unsigned long>(snapshot.tx_packets));
-  if (snapshot.battery_valid) {
-    std::snprintf(health, sizeof(health), "ERR:%lu BAT:%u.%02uV",
-                  static_cast<unsigned long>(snapshot.error_count),
-                  snapshot.battery_millivolts / 1000,
-                  (snapshot.battery_millivolts % 1000) / 10);
-  } else {
-    std::snprintf(health, sizeof(health), "ERR:%lu BAT:--",
-                  static_cast<unsigned long>(snapshot.error_count));
-  }
-
-  display_.clearDisplay();
-  DrawHeader(display_, ProjectStateLabel(snapshot.state));
-  display_.setCursor(0, 13);
-  display_.print("MODE: ");
-  display_.println(ProfileLabel(snapshot.profile));
-  display_.print("USB: ");
-  display_.println(snapshot.host_ready ? "READY" : "WAITING");
-  display_.print("AUX: ");
-  display_.println(snapshot.aux_enabled ? "ENABLED" : "DISABLED");
-  display_.println(counters);
-  display_.println(health);
-  display_.display();
-}
-
-void DisplayController::renderFault(const DisplayViewModel& model) {
-  const DisplaySnapshot& snapshot = model.snapshot;
-  display_.clearDisplay();
-  DrawHeader(display_, "NEXSTAR AUX FAULT");
-  display_.setTextSize(2);
-  display_.setCursor(0, 17);
-  display_.println("SAFE");
-  display_.setTextSize(1);
-  display_.println("AUX DISABLED");
-  display_.print("ERRORS: ");
-  display_.println(snapshot.error_count);
-  display_.display();
-}
-
-}  // namespace nexstar
-
-#else
+#include "board_support.hpp"
+#endif
 
 namespace nexstar {
 
 DisplayController::DisplayController() = default;
 
+#if NEXSTAR_DISPLAY_ENABLED
+namespace {
+
+constexpr std::uint32_t kTftSpiHz = 4000000;
+constexpr std::uint32_t kMinimumRenderIntervalMs = 500;
+
+Adafruit_ST7735 tft(BoardPins::kTftChipSelect, BoardPins::kTftDataCommand,
+                    BoardPins::kTftReset);
+
+}  // namespace
+
+bool DisplayController::begin(const DisplaySnapshot& snapshot,
+                              const std::uint32_t now_ms) {
+  // Keep the panel dark and deselected while its control pins and SPI bus are
+  // established. This diagnostic profile is the only profile that reaches
+  // this code until NEX-21 bench validation is complete.
+  pinMode(BoardPins::kTftBacklight, OUTPUT);
+  digitalWrite(BoardPins::kTftBacklight, LOW);
+  pinMode(BoardPins::kTftChipSelect, OUTPUT);
+  digitalWrite(BoardPins::kTftChipSelect, HIGH);
+  pinMode(BoardPins::kTftDataCommand, OUTPUT);
+  digitalWrite(BoardPins::kTftDataCommand, LOW);
+  pinMode(BoardPins::kTftReset, OUTPUT);
+  digitalWrite(BoardPins::kTftReset, HIGH);
+
+  SPI.begin(BoardPins::kTftClock, -1, BoardPins::kTftMosi,
+            BoardPins::kTftChipSelect);
+  tft.initR(INITR_MINI160x80);
+  tft.setSPISpeed(kTftSpiHz);
+  tft.setRotation(1);
+  tft.setTextWrap(false);
+
+  available_ = true;
+  last_snapshot_ = snapshot;
+  last_render_ms_ = now_ms;
+  render(snapshot);
+  digitalWrite(BoardPins::kTftBacklight, HIGH);
+  return true;
+}
+
+void DisplayController::render(const DisplaySnapshot& snapshot) {
+  tft.fillScreen(ST77XX_BLACK);
+  tft.fillRect(0, 0, 160, 12, ST77XX_RED);
+  tft.fillRect(0, 12, 160, 12, ST77XX_GREEN);
+  tft.fillRect(0, 24, 160, 12, ST77XX_BLUE);
+
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+  tft.setCursor(4, 42);
+  tft.print("NEXSTAR TFT TEST");
+  tft.setCursor(4, 54);
+  tft.print(ProfileLabel(snapshot.profile));
+  renderStatusLine(snapshot);
+}
+
+void DisplayController::renderStatusLine(const DisplaySnapshot& snapshot) {
+  // Updating only this row avoids a visible full-screen flash whenever AUX
+  // traffic changes the packet counter.
+  tft.fillRect(0, 64, 160, 16, ST77XX_BLACK);
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+  tft.setCursor(4, 66);
+  tft.printf("RX:%lu SAFE", static_cast<unsigned long>(snapshot.rx_packets));
+}
+
+void DisplayController::update(const DisplaySnapshot& snapshot,
+                               const std::uint32_t now_ms) {
+  if (!available_ || SnapshotsEqual(snapshot, last_snapshot_) ||
+      now_ms - last_render_ms_ < kMinimumRenderIntervalMs) {
+    return;
+  }
+  const bool static_content_changed =
+      snapshot.profile != last_snapshot_.profile ||
+      snapshot.state != last_snapshot_.state;
+  last_snapshot_ = snapshot;
+  last_render_ms_ = now_ms;
+  if (static_content_changed) {
+    render(snapshot);
+  } else {
+    renderStatusLine(snapshot);
+  }
+}
+
+#else
+
 bool DisplayController::begin(const DisplaySnapshot&, std::uint32_t) {
+  available_ = false;
   return false;
 }
 
 void DisplayController::update(const DisplaySnapshot&, std::uint32_t) {}
 
-}  // namespace nexstar
+void DisplayController::render(const DisplaySnapshot&) {}
+
+void DisplayController::renderStatusLine(const DisplaySnapshot&) {}
 
 #endif
+
+}  // namespace nexstar

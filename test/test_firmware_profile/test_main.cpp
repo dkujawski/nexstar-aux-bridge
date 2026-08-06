@@ -47,11 +47,17 @@ void test_diagnostics_are_bounded_and_counters_saturate() {
       diagnostics.event(nexstar::Diagnostics::kEventCapacity - 1).timestamp_ms);
 }
 
-void test_aux_pin_contract_is_unique_and_avoids_board_functions() {
-  TEST_ASSERT_TRUE(nexstar::AuxPinsAreDistinct());
-  TEST_ASSERT_TRUE(nexstar::AuxPinsAvoidBoardFunctions());
+void test_peripheral_pin_contract_is_unique_and_safe() {
+  TEST_ASSERT_TRUE(nexstar::PinsAreDistinct());
+  TEST_ASSERT_TRUE(nexstar::PeripheralPinsAreSafe());
   TEST_ASSERT_TRUE(nexstar::BoardPolarity::kAuxTxDisabledLevel);
-  TEST_ASSERT_FALSE(nexstar::BoardPolarity::kAuxBusyReleasedLevel);
+  TEST_ASSERT_TRUE(nexstar::BoardPolarity::kAuxBusyReleasedLevel);
+  TEST_ASSERT_FALSE(nexstar::BoardPolarity::kAuxBusyAssertActiveHigh);
+  TEST_ASSERT_EQUAL_UINT8(1, nexstar::BoardPins::kHostUartTx);
+  TEST_ASSERT_EQUAL_UINT8(3, nexstar::BoardPins::kHostUartRx);
+  TEST_ASSERT_EQUAL_UINT8(16, nexstar::BoardPins::kAuxUartRx);
+  TEST_ASSERT_EQUAL_UINT8(17, nexstar::BoardPins::kAuxUartTx);
+  TEST_ASSERT_EQUAL_UINT8(34, nexstar::BoardPins::kAuxCtsIn);
 }
 
 void test_display_model_describes_current_safe_state() {
@@ -114,7 +120,7 @@ int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_known_profiles_are_valid);
   RUN_TEST(test_only_bridge_profile_may_transmit_aux);
-  RUN_TEST(test_aux_pin_contract_is_unique_and_avoids_board_functions);
+  RUN_TEST(test_peripheral_pin_contract_is_unique_and_safe);
   RUN_TEST(test_diagnostics_are_bounded_and_counters_saturate);
   RUN_TEST(test_display_model_describes_current_safe_state);
   RUN_TEST(test_display_snapshot_change_detection_covers_status_fields);

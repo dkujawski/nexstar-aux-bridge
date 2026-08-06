@@ -17,7 +17,7 @@ bool DisplayService::begin(const DisplaySnapshot& initial_snapshot) {
     return false;
   }
   task_ = xTaskCreateStaticPinnedToCore(
-      TaskEntry, "oled", kTaskStackDepth, this, kTaskPriority, task_stack_,
+      TaskEntry, "tft", kTaskStackDepth, this, kTaskPriority, task_stack_,
       &task_control_, 0);
   return task_ != nullptr;
 }

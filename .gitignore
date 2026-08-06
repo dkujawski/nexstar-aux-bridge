@@ -2,3 +2,7 @@
 .venv/
 .vscode/
 *.log
+
+# Local procurement record and third-party installer; do not publish.
+hardware/procurement/2026-07-27-amazon-order-112-2971424-7037007.pdf
+software/pulseview-NIGHTLY-x86_64-release-installer.exe
