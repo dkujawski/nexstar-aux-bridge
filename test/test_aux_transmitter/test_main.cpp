@@ -39,6 +39,19 @@ nexstar::AuxPacket Packet() {
   return packet;
 }
 
+nexstar::AuxPacket Response() {
+  nexstar::AuxPacket packet{};
+  constexpr std::array<std::uint8_t, 8> bytes{
+      0x3B, 0x05, 0x10, 0x04, 0xFE, 0x04, 0x03, 0xE2,
+  };
+  packet.size = bytes.size();
+  packet.origin = nexstar::PacketOrigin::kAuxBus;
+  for (std::size_t index = 0; index < bytes.size(); ++index) {
+    packet.bytes[index] = bytes[index];
+  }
+  return packet;
+}
+
 void AdvanceToDrain(nexstar::AuxTransmitter& transmitter) {
   transmitter.tick(0);    // bus wait -> claim
   transmitter.tick(1);    // assert BUSY -> delay
@@ -59,7 +72,7 @@ void test_listen_only_and_invalid_packets_never_transmit() {
       transmitter.start(Packet(), nexstar::OperatingMode::kListenOnly,
                         nexstar::AuxTxAuthorization::kControlledTest, 0));
   TEST_ASSERT_FALSE(
-      transmitter.start(Packet(), nexstar::OperatingMode::kBridge,
+      transmitter.start(Packet(), nexstar::OperatingMode::kControlledTest,
                         nexstar::AuxTxAuthorization::kProhibited, 0));
   TEST_ASSERT_FALSE(io.tx_enabled);
   TEST_ASSERT_FALSE(io.busy_asserted);
@@ -67,7 +80,7 @@ void test_listen_only_and_invalid_packets_never_transmit() {
   auto bad = Packet();
   bad.bytes[5] ^= 1;
   TEST_ASSERT_FALSE(
-      transmitter.start(bad, nexstar::OperatingMode::kBridge,
+      transmitter.start(bad, nexstar::OperatingMode::kControlledTest,
                         nexstar::AuxTxAuthorization::kControlledTest, 0));
 
   auto mutating = Packet();
@@ -75,16 +88,16 @@ void test_listen_only_and_invalid_packets_never_transmit() {
   mutating.bytes[5] = nexstar::CalculateAuxChecksum(
       mutating.bytes.data(), mutating.size - 1);
   TEST_ASSERT_FALSE(transmitter.start(
-      mutating, nexstar::OperatingMode::kBridge,
+      mutating, nexstar::OperatingMode::kControlledTest,
       nexstar::AuxTxAuthorization::kControlledTest, 0));
   TEST_ASSERT_EQUAL_UINT32(1, transmitter.metrics().rejected_policy);
 }
 
-void test_success_path_waits_for_uart_and_echo_before_safe_release() {
+void test_success_path_releases_at_uart_drain_then_requires_echo_and_response() {
   FakeIo io;
   nexstar::AuxTransmitter transmitter(io);
   TEST_ASSERT_TRUE(
-      transmitter.start(Packet(), nexstar::OperatingMode::kBridge,
+      transmitter.start(Packet(), nexstar::OperatingMode::kControlledTest,
                         nexstar::AuxTxAuthorization::kControlledTest, 0));
   AdvanceToDrain(transmitter);
   TEST_ASSERT_TRUE(io.tx_enabled);
@@ -95,16 +108,43 @@ void test_success_path_waits_for_uart_and_echo_before_safe_release() {
                     static_cast<int>(transmitter.state()));
   io.tx_complete = true;
   transmitter.tick(105);
-  transmitter.tick(106);
-  TEST_ASSERT_FALSE(io.tx_enabled);
-  TEST_ASSERT_TRUE(io.busy_asserted);
-
-  transmitter.notifyEchoComplete();
-  transmitter.tick(107);
-  transmitter.tick(108);
   TEST_ASSERT_FALSE(io.tx_enabled);
   TEST_ASSERT_FALSE(io.busy_asserted);
+  TEST_ASSERT_EQUAL(static_cast<int>(nexstar::AuxTxState::kEchoWait),
+                    static_cast<int>(transmitter.state()));
+
+  transmitter.notifyEchoComplete();
+  transmitter.tick(106);
+  TEST_ASSERT_FALSE(io.tx_enabled);
+  TEST_ASSERT_FALSE(io.busy_asserted);
+  TEST_ASSERT_EQUAL(static_cast<int>(nexstar::AuxTxState::kResponseWait),
+                    static_cast<int>(transmitter.state()));
+  TEST_ASSERT_TRUE(transmitter.notifyResponse(Response()));
+  transmitter.tick(107);
   TEST_ASSERT_EQUAL_UINT32(1, transmitter.completedPackets());
+}
+
+void test_response_timeout_faults_after_busy_is_safely_released() {
+  FakeIo io;
+  io.tx_complete = true;
+  nexstar::AuxTxTiming timing{};
+  timing.response_timeout_us = 10;
+  nexstar::AuxTransmitter transmitter(io, timing);
+  transmitter.start(Packet(), nexstar::OperatingMode::kControlledTest,
+                    nexstar::AuxTxAuthorization::kControlledTest, 0);
+  transmitter.tick(0);
+  transmitter.tick(1);
+  transmitter.tick(101);
+  transmitter.tick(102);
+  transmitter.tick(103);
+  transmitter.tick(104);
+  TEST_ASSERT_FALSE(io.busy_asserted);
+  transmitter.notifyEchoComplete();
+  transmitter.tick(105);
+  transmitter.tick(115);
+  TEST_ASSERT_EQUAL(static_cast<int>(nexstar::AuxTxFault::kResponseTimeout),
+                    static_cast<int>(transmitter.lastFault()));
+  TEST_ASSERT_EQUAL_UINT32(0, transmitter.completedPackets());
 }
 
 void test_contention_retries_are_bounded_then_fault_safe() {
@@ -115,7 +155,7 @@ void test_contention_retries_are_bounded_then_fault_safe() {
   timing.backoff_us = 5;
   timing.maximum_attempts = 2;
   nexstar::AuxTransmitter transmitter(io, timing);
-  transmitter.start(Packet(), nexstar::OperatingMode::kBridge,
+  transmitter.start(Packet(), nexstar::OperatingMode::kControlledTest,
                     nexstar::AuxTxAuthorization::kControlledTest, 0);
 
   transmitter.tick(10);
@@ -131,7 +171,7 @@ void test_write_drain_and_echo_timeouts_force_safe_fault() {
   FakeIo io;
   io.short_write = true;
   nexstar::AuxTransmitter transmitter(io);
-  transmitter.start(Packet(), nexstar::OperatingMode::kBridge,
+  transmitter.start(Packet(), nexstar::OperatingMode::kControlledTest,
                     nexstar::AuxTxAuthorization::kControlledTest, 0);
   AdvanceToDrain(transmitter);
   TEST_ASSERT_EQUAL(static_cast<int>(nexstar::AuxTxState::kFault),
@@ -150,7 +190,7 @@ void test_uart_drain_and_echo_timeout_paths_force_safe_fault() {
   timing.uart_drain_timeout_us = 10;
   timing.echo_timeout_us = 10;
   nexstar::AuxTransmitter transmitter(io, timing);
-  transmitter.start(Packet(), nexstar::OperatingMode::kBridge,
+  transmitter.start(Packet(), nexstar::OperatingMode::kControlledTest,
                     nexstar::AuxTxAuthorization::kControlledTest, 0);
   AdvanceToDrain(transmitter);
   transmitter.tick(113);
@@ -161,7 +201,7 @@ void test_uart_drain_and_echo_timeout_paths_force_safe_fault() {
 
   transmitter.recover(200);
   io.tx_complete = true;
-  transmitter.start(Packet(), nexstar::OperatingMode::kBridge,
+  transmitter.start(Packet(), nexstar::OperatingMode::kControlledTest,
                     nexstar::AuxTxAuthorization::kControlledTest, 200);
   transmitter.tick(200);
   transmitter.tick(201);
@@ -184,7 +224,7 @@ void test_transaction_timeout_bounds_busy_hold_and_records_fault() {
   timing.claim_delay_us = 100;
   nexstar::AuxTransmitter transmitter(io, timing);
   TEST_ASSERT_TRUE(transmitter.start(
-      Packet(), nexstar::OperatingMode::kBridge,
+      Packet(), nexstar::OperatingMode::kControlledTest,
       nexstar::AuxTxAuthorization::kControlledTest, 0));
   transmitter.tick(0);
   transmitter.tick(1);
@@ -206,7 +246,7 @@ void test_one_thousand_simulated_version_transactions_complete() {
     const std::uint32_t base = exchange * 200;
     io.tx_complete = false;
     TEST_ASSERT_TRUE(transmitter.start(
-        Packet(), nexstar::OperatingMode::kBridge,
+        Packet(), nexstar::OperatingMode::kControlledTest,
         nexstar::AuxTxAuthorization::kControlledTest, base));
     transmitter.tick(base);
     transmitter.tick(base + 1);
@@ -215,10 +255,10 @@ void test_one_thousand_simulated_version_transactions_complete() {
     transmitter.tick(base + 103);
     io.tx_complete = true;
     transmitter.tick(base + 104);
-    transmitter.tick(base + 105);
     transmitter.notifyEchoComplete();
+    transmitter.tick(base + 105);
+    TEST_ASSERT_TRUE(transmitter.notifyResponse(Response()));
     transmitter.tick(base + 106);
-    transmitter.tick(base + 107);
   }
   TEST_ASSERT_EQUAL_UINT32(1000, transmitter.completedPackets());
   TEST_ASSERT_EQUAL_UINT32(0, transmitter.faults());
@@ -227,11 +267,13 @@ void test_one_thousand_simulated_version_transactions_complete() {
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_listen_only_and_invalid_packets_never_transmit);
-  RUN_TEST(test_success_path_waits_for_uart_and_echo_before_safe_release);
+  RUN_TEST(
+      test_success_path_releases_at_uart_drain_then_requires_echo_and_response);
   RUN_TEST(test_contention_retries_are_bounded_then_fault_safe);
   RUN_TEST(test_write_drain_and_echo_timeouts_force_safe_fault);
   RUN_TEST(test_uart_drain_and_echo_timeout_paths_force_safe_fault);
   RUN_TEST(test_transaction_timeout_bounds_busy_hold_and_records_fault);
+  RUN_TEST(test_response_timeout_faults_after_busy_is_safely_released);
   RUN_TEST(test_one_thousand_simulated_version_transactions_complete);
   return UNITY_END();
 }

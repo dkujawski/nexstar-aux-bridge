@@ -43,6 +43,7 @@ pio run -e esp32dev_listen_only
 pio run -e esp32dev_listen_only_tft
 pio run -e esp32dev_headless
 pio run -e esp32dev_diagnostic
+pio run -e esp32dev_controlled_test
 pio test -e native
 ```
 
@@ -56,3 +57,19 @@ pio run -e esp32dev_listen_only -t upload --upload-port COM6
 
 Confirm the port before running these commands; Windows can assign a different
 COM number after reconnecting the device.
+
+The NEX-16 image is deliberately separate from every bridge profile. It boots
+with TX and BUSY released. `SELECT <destination-hex>` records the sole allowed
+destination without authorizing TX; only the separate `ARM` command issues one
+payload-free `GET_VERSION` (`FE`) query. `STATUS` reports its counters;
+`RECOVER` releases outputs, clears the selection, and leaves transmission
+unauthorized. Use it only after the hold point in
+[`docs/bench-validation.md`](docs/bench-validation.md) is released.
+
+The controlled image uses source ID `03`, the AUX command-set recommendation
+for an external PC/AUX-port device. It ignores the physical echo for completion
+and waits for a matching checksum-valid version response addressed to `03`.
+
+If [just](https://github.com/casey/just) is installed, `just deps` installs the
+pinned PlatformIO Core dependency, `just controlled-test` builds this image,
+and `just controlled-test-upload COM6` uploads it after the port is confirmed.

@@ -16,9 +16,8 @@ enum class AuxTxState : std::uint8_t {
   kTxEnable,
   kWrite,
   kUartDrain,
-  kTxDisable,
   kEchoWait,
-  kBusyRelease,
+  kResponseWait,
   kBackoff,
   kFault,
 };
@@ -35,6 +34,7 @@ enum class AuxTxFault : std::uint8_t {
   kUartDrainTimeout,
   kEchoTimeout,
   kTransactionTimeout,
+  kResponseTimeout,
 };
 
 struct AuxTxMetrics {
@@ -65,6 +65,7 @@ struct AuxTxTiming {
   std::uint32_t bus_wait_timeout_us{5000};
   std::uint32_t uart_drain_timeout_us{20000};
   std::uint32_t echo_timeout_us{150000};
+  std::uint32_t response_timeout_us{250000};
   std::uint32_t transaction_timeout_us{175000};
   std::uint32_t backoff_us{2000};
   std::uint8_t maximum_attempts{3};
@@ -152,30 +153,35 @@ class AuxTransmitter {
 
       case AuxTxState::kUartDrain:
         if (io_.txComplete()) {
-          transition(AuxTxState::kTxDisable, now_us);
+          // Once the UART confirms that the final stop bit has drained, the
+          // bridge no longer needs to own the bus. Disable TX and release
+          // BUSY immediately; the responder can start before the echoed byte
+          // reaches the application-level RX queue.
+          io_.setTxEnabled(false);
+          releaseBusy(now_us);
+          transition(echo_complete_ ? AuxTxState::kResponseWait
+                                    : AuxTxState::kEchoWait,
+                     now_us);
         } else if (elapsed(now_us) >= timing_.uart_drain_timeout_us) {
           enterFault(now_us, AuxTxFault::kUartDrainTimeout);
         }
         return;
 
-      case AuxTxState::kTxDisable:
-        io_.setTxEnabled(false);
-        transition(AuxTxState::kEchoWait, now_us);
-        return;
-
       case AuxTxState::kEchoWait:
         if (echo_complete_) {
-          transition(AuxTxState::kBusyRelease, now_us);
+          transition(AuxTxState::kResponseWait, now_us);
         } else if (elapsed(now_us) >= timing_.echo_timeout_us) {
           enterFault(now_us, AuxTxFault::kEchoTimeout);
         }
         return;
 
-      case AuxTxState::kBusyRelease:
-        recordBusyHold(now_us);
-        io_.setBusyAsserted(false);
-        ++metrics_.completed_packets;
-        transition(AuxTxState::kIdle, now_us);
+      case AuxTxState::kResponseWait:
+        if (response_complete_) {
+          ++metrics_.completed_packets;
+          transition(AuxTxState::kIdle, now_us);
+        } else if (elapsed(now_us) >= timing_.response_timeout_us) {
+          enterFault(now_us, AuxTxFault::kResponseTimeout);
+        }
         return;
 
       case AuxTxState::kBackoff:
@@ -187,6 +193,15 @@ class AuxTransmitter {
   }
 
   void notifyEchoComplete() { echo_complete_ = true; }
+
+  bool notifyResponse(const AuxPacket& response) {
+    if (state_ != AuxTxState::kResponseWait ||
+        !IsControlledVersionResponse(packet_, response)) {
+      return false;
+    }
+    response_complete_ = true;
+    return true;
+  }
 
   void recover(const std::uint32_t now_us) {
     forceSafe();
@@ -202,6 +217,7 @@ class AuxTransmitter {
   [[nodiscard]] std::uint32_t faults() const { return metrics_.faults; }
   [[nodiscard]] AuxTxFault lastFault() const { return last_fault_; }
   [[nodiscard]] const AuxTxMetrics& metrics() const { return metrics_; }
+  [[nodiscard]] const AuxTxTiming& timing() const { return timing_; }
 
  private:
   static constexpr std::uint32_t Delta(const std::uint32_t now,
@@ -218,6 +234,7 @@ class AuxTransmitter {
     state_entered_us_ = now_us;
     if (state == AuxTxState::kBusWait) {
       echo_complete_ = false;
+      response_complete_ = false;
     }
   }
 
@@ -251,6 +268,11 @@ class AuxTransmitter {
     busy_claimed_ = false;
   }
 
+  void releaseBusy(const std::uint32_t now_us) {
+    recordBusyHold(now_us);
+    io_.setBusyAsserted(false);
+  }
+
   void forceSafe() {
     io_.setTxEnabled(false);
     io_.setBusyAsserted(false);
@@ -267,6 +289,7 @@ class AuxTransmitter {
   std::uint32_t busy_claimed_us_{0};
   std::uint8_t attempts_{0};
   bool echo_complete_{false};
+  bool response_complete_{false};
   bool busy_claimed_{false};
 };
 
