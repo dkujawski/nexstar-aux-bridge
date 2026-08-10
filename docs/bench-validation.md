@@ -1,5 +1,34 @@
 # Bench validation record
 
+## NEX-11 — USB-UART host transport reset and reconnect check
+
+Date: 2026-08-10
+
+Configuration:
+
+- Generic 30-pin ESP32 DevKit V1 with CP2102 USB-UART bridge on `COM6`
+  (VID:PID `10C4:EA60`)
+- `esp32dev` binary-clean bridge profile uploaded successfully
+- UART0 observed with `miniterm` at 115,200 baud for ROM startup, then at
+  19,200 baud for the binary protocol endpoint
+- no AUX command was sent and AUX TX remained fail-closed
+
+| Check | Observed result | Result |
+| --- | --- | --- |
+| EN reset | ESP32 ROM startup sequence appeared on each reset | PASS |
+| Application startup | No application banner or diagnostic text followed the ROM output | PASS |
+| Protocol session | 19,200-baud raw session remained silent without routed binary traffic | PASS |
+| USB reconnect | CP2102 re-enumerated as `COM6`; the host session reconnected without a mount power cycle | PASS |
+
+The ROM banner is an immutable reset-time UART0 behavior. It precedes the
+application and is not emitted by the bridge firmware. The normal bridge
+profile deliberately emits no text after initialization.
+
+Remaining NEX-11 validation: exercise the TFT-enabled path and sustained host
+backpressure while AUX service is integrated, then define the observable
+disconnect metric for UART0 (which exposes no reliable physical-disconnect
+event).
+
 This file records human-operated electrical checks for NEX-14. A passing
 firmware-only check does not authorize connection to a telescope mount.
 
