@@ -16,8 +16,12 @@ The firmware remains deliberately fail-closed:
 - normal bridge/headless profiles emit no serial banner or debug text; the
   explicitly selected capture and diagnostic profiles may report bench data;
 - Wi-Fi, Bluetooth, and LoRa are not initialized;
-- the firmware idles until the board-support and transport issues are
-  implemented.
+- the bridge profile opens UART0 at 19,200 baud as a binary-only Mount-USB
+  endpoint. It incrementally validates host frames into bounded queues and
+  uses nonblocking partial writes for AUX-to-host traffic; it emits no
+  application banner or diagnostics on that protocol channel.
+- no bridge profile presently enables AUX TX; validated host packets remain
+  queued until the wired integration safety gates are completed.
 
 The former Heltec OLED implementation is retired. The external 0.96-inch
 80x160 ST7735S TFT has passed supply, initialization, rotation, color-order,
@@ -43,6 +47,7 @@ pio run -e esp32dev_listen_only
 pio run -e esp32dev_listen_only_tft
 pio run -e esp32dev_headless
 pio run -e esp32dev_diagnostic
+pio run -e esp32dev_controlled_test
 pio test -e native
 ```
 
@@ -56,3 +61,19 @@ pio run -e esp32dev_listen_only -t upload --upload-port COM6
 
 Confirm the port before running these commands; Windows can assign a different
 COM number after reconnecting the device.
+
+The NEX-16 image is deliberately separate from every bridge profile. It boots
+with TX and BUSY released. `SELECT <destination-hex>` records the sole allowed
+destination without authorizing TX; only the separate `ARM` command issues one
+payload-free `GET_VERSION` (`FE`) query. `STATUS` reports its counters;
+`RECOVER` releases outputs, clears the selection, and leaves transmission
+unauthorized. Use it only after the hold point in
+[`docs/bench-validation.md`](docs/bench-validation.md) is released.
+
+The controlled image uses source ID `03`, the AUX command-set recommendation
+for an external PC/AUX-port device. It ignores the physical echo for completion
+and waits for a matching checksum-valid version response addressed to `03`.
+
+If [just](https://github.com/casey/just) is installed, `just deps` installs the
+pinned PlatformIO Core dependency, `just controlled-test` builds this image,
+and `just controlled-test-upload COM6` uploads it after the port is confirmed.

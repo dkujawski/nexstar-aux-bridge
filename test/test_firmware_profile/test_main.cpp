@@ -17,13 +17,17 @@ void test_known_profiles_are_valid() {
   TEST_ASSERT_FALSE(nexstar::IsValidProfile(0));
   TEST_ASSERT_TRUE(nexstar::IsValidProfile(
       static_cast<std::uint8_t>(nexstar::FirmwareProfile::kDiagnostic)));
-  TEST_ASSERT_FALSE(nexstar::IsValidProfile(4));
+  TEST_ASSERT_TRUE(nexstar::IsValidProfile(
+      static_cast<std::uint8_t>(nexstar::FirmwareProfile::kControlledTest)));
+  TEST_ASSERT_FALSE(nexstar::IsValidProfile(5));
 }
 
-void test_only_bridge_profile_may_transmit_aux() {
-  TEST_ASSERT_TRUE(nexstar::MayTransmitAux(nexstar::FirmwareProfile::kBridge));
+void test_only_controlled_test_profile_may_transmit_aux() {
+  TEST_ASSERT_FALSE(nexstar::MayTransmitAux(nexstar::FirmwareProfile::kBridge));
   TEST_ASSERT_FALSE(nexstar::MayTransmitAux(nexstar::FirmwareProfile::kListenOnly));
   TEST_ASSERT_FALSE(nexstar::MayTransmitAux(nexstar::FirmwareProfile::kDiagnostic));
+  TEST_ASSERT_TRUE(
+      nexstar::MayTransmitAux(nexstar::FirmwareProfile::kControlledTest));
 }
 
 void test_diagnostics_are_bounded_and_counters_saturate() {
@@ -119,7 +123,7 @@ void test_display_model_fault_overlay_is_temporary() {
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_known_profiles_are_valid);
-  RUN_TEST(test_only_bridge_profile_may_transmit_aux);
+  RUN_TEST(test_only_controlled_test_profile_may_transmit_aux);
   RUN_TEST(test_peripheral_pin_contract_is_unique_and_safe);
   RUN_TEST(test_diagnostics_are_bounded_and_counters_saturate);
   RUN_TEST(test_display_model_describes_current_safe_state);

@@ -28,7 +28,12 @@ started. The listen-only application emitted no subsequent bytes during the
 observation window.
 
 NEX-11 must account for this immutable reset-time output in the host protocol
-design. Normal application logging remains prohibited on UART0.
+design. The bridge profile configures UART0 at 19,200 baud and uses it only for
+incremental binary AUX-frame input and output. Normal application logging,
+TFT messages, and diagnostics remain prohibited on UART0. The transport uses
+bounded queues and nonblocking writes, so a stalled or newly reconnected host
+cannot block AUX-side service; ESP32 UART0 does not expose a reliable physical
+disconnect event, so reconnection is handled as continued byte-stream parsing.
 
 The external display is marked `4-SPI`, `IC: ST7735S`, `Display Color: 65K`,
 and `0.96" 80x160 (RGB)`. Its header is labeled `GND VCC SCL SDA RES DC CS
