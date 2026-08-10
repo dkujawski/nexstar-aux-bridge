@@ -15,6 +15,6 @@ jobs:
       - name: Install PlatformIO
         run: python -m pip install "platformio==6.1.19"
       - name: Build ESP32 DevKit firmware
-        run: pio run -e esp32dev -e esp32dev_listen_only -e esp32dev_headless -e esp32dev_controlled_test
+        run: pio run -e esp32dev -e esp32dev_listen_only -e esp32dev_listen_only_tft -e esp32dev_headless -e esp32dev_diagnostic -e esp32dev_controlled_test
       - name: Run native tests
         run: pio test -e native

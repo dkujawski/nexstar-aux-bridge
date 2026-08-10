@@ -15,12 +15,18 @@ class DisplayController {
   [[nodiscard]] bool available() const { return available_; }
 
  private:
-  void render(const DisplaySnapshot& snapshot);
-  void renderStatusLine(const DisplaySnapshot& snapshot);
+  void renderBoot(const DisplaySnapshot& snapshot);
+  void renderMain(const DisplayViewModel& view);
+  void renderFault(const DisplayViewModel& view);
+  static bool ViewsEqual(const DisplayViewModel& lhs,
+                         const DisplayViewModel& rhs);
 
   bool available_{false};
+  DisplayModel model_{};
+  DisplayViewModel last_view_{};
+  bool showing_boot_{false};
+  std::uint32_t boot_started_ms_{0};
   std::uint32_t last_render_ms_{0};
-  DisplaySnapshot last_snapshot_{};
 };
 
 }  // namespace nexstar

@@ -82,6 +82,18 @@ void test_display_snapshot_change_detection_covers_status_fields() {
 
   after.error_count = 1;
   TEST_ASSERT_FALSE(nexstar::SnapshotsEqual(before, after));
+
+  after = before;
+  after.host_active = true;
+  TEST_ASSERT_FALSE(nexstar::SnapshotsEqual(before, after));
+
+  after = before;
+  after.busy_timeout_count = 1;
+  TEST_ASSERT_FALSE(nexstar::SnapshotsEqual(before, after));
+
+  after = before;
+  after.fault_code = 6;
+  TEST_ASSERT_FALSE(nexstar::SnapshotsEqual(before, after));
 }
 
 void test_display_model_latches_packet_activity_without_per_byte_redraw_state() {
@@ -120,6 +132,28 @@ void test_display_model_fault_overlay_is_temporary() {
   TEST_ASSERT_EQUAL_STRING("FAULT", nexstar::ProjectStateLabel(view.snapshot.state));
 }
 
+void test_display_model_copies_full_status_snapshot() {
+  nexstar::DisplayModel model;
+  nexstar::DisplaySnapshot snapshot{};
+  snapshot.host_ready = true;
+  snapshot.host_active = true;
+  snapshot.aux_enabled = false;
+  snapshot.rx_packets = 12;
+  snapshot.tx_packets = 7;
+  snapshot.error_count = 2;
+  snapshot.busy_timeout_count = 1;
+  snapshot.fault_code = 6;
+
+  const auto view = model.update(snapshot, 100);
+  TEST_ASSERT_TRUE(view.snapshot.host_ready);
+  TEST_ASSERT_TRUE(view.snapshot.host_active);
+  TEST_ASSERT_EQUAL_UINT32(12, view.snapshot.rx_packets);
+  TEST_ASSERT_EQUAL_UINT32(7, view.snapshot.tx_packets);
+  TEST_ASSERT_EQUAL_UINT32(2, view.snapshot.error_count);
+  TEST_ASSERT_EQUAL_UINT32(1, view.snapshot.busy_timeout_count);
+  TEST_ASSERT_EQUAL_UINT8(6, view.snapshot.fault_code);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_known_profiles_are_valid);
@@ -130,5 +164,6 @@ int main(int, char**) {
   RUN_TEST(test_display_snapshot_change_detection_covers_status_fields);
   RUN_TEST(test_display_model_latches_packet_activity_without_per_byte_redraw_state);
   RUN_TEST(test_display_model_fault_overlay_is_temporary);
+  RUN_TEST(test_display_model_copies_full_status_snapshot);
   return UNITY_END();
 }
