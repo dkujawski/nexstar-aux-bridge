@@ -16,8 +16,12 @@ The firmware remains deliberately fail-closed:
 - normal bridge/headless profiles emit no serial banner or debug text; the
   explicitly selected capture and diagnostic profiles may report bench data;
 - Wi-Fi, Bluetooth, and LoRa are not initialized;
-- the firmware idles until the board-support and transport issues are
-  implemented.
+- the bridge profile opens UART0 at 19,200 baud as a binary-only Mount-USB
+  endpoint. It incrementally validates host frames into bounded queues and
+  uses nonblocking partial writes for AUX-to-host traffic; it emits no
+  application banner or diagnostics on that protocol channel.
+- no bridge profile presently enables AUX TX; validated host packets remain
+  queued until the wired integration safety gates are completed.
 
 The former Heltec OLED implementation is retired. The external 0.96-inch
 80x160 ST7735S TFT has passed supply, initialization, rotation, color-order,

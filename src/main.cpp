@@ -10,6 +10,7 @@
 #include "display_model.hpp"
 #include "display_service.hpp"
 #include "firmware_profile.hpp"
+#include "host_transport.hpp"
 #include "packet_router.hpp"
 
 #ifndef NEXSTAR_FIRMWARE_VERSION
@@ -52,6 +53,23 @@ nexstar::DisplayService display;
 nexstar::DisplaySnapshot snapshot;
 nexstar::Diagnostics diagnostics;
 std::uint32_t last_display_publish_ms = 0;
+
+#if NEXSTAR_FIRMWARE_PROFILE == 1
+constexpr std::uint32_t kHostBaud = 19200;
+
+class ArduinoHostByteStream final : public nexstar::HostByteStream {
+ public:
+  int available() const override { return Serial.available(); }
+  int read() override { return Serial.read(); }
+  std::size_t write(const std::uint8_t* bytes, const std::size_t size) override {
+    return Serial.write(bytes, size);
+  }
+};
+
+ArduinoHostByteStream host_stream;
+nexstar::PacketRouter<> packet_router;
+nexstar::HostTransport<> host_transport(host_stream, packet_router);
+#endif
 
 #if NEXSTAR_AUX_CAPTURE_ENABLED
 static_assert(NEXSTAR_FIRMWARE_PROFILE == 2,
@@ -392,6 +410,12 @@ void setup() {
   delay(200);
 #endif
 
+#if NEXSTAR_FIRMWARE_PROFILE == 1
+  // UART0 is the binary Mount-USB protocol endpoint. Do not print here:
+  // ROM reset bytes are unavoidable, but application traffic must stay clean.
+  Serial.begin(kHostBaud);
+#endif
+
 #if NEXSTAR_AUX_CONTROLLED_TEST_ENABLED
   Serial.begin(115200);
   delay(200);
@@ -423,6 +447,9 @@ void setup() {
 }
 
 void loop() {
+#if NEXSTAR_FIRMWARE_PROFILE == 1
+  host_transport.service(millis());
+#endif
 #if NEXSTAR_AUX_CAPTURE_ENABLED
   PollAuxCapture();
 #endif
