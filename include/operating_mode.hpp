@@ -18,7 +18,8 @@ constexpr bool IsValidOperatingMode(const std::uint8_t mode) {
 }
 
 constexpr bool MayTransmitAux(const OperatingMode mode) {
-  return mode == OperatingMode::kControlledTest;
+  return mode == OperatingMode::kUsbBridge ||
+         mode == OperatingMode::kControlledTest;
 }
 
 constexpr const char* OperatingModeLabel(const OperatingMode mode) {
