@@ -69,6 +69,95 @@ class ArduinoHostByteStream final : public nexstar::HostByteStream {
 ArduinoHostByteStream host_stream;
 nexstar::PacketRouter<> packet_router;
 nexstar::HostTransport<> host_transport(host_stream, packet_router);
+
+constexpr std::uint32_t kAuxBaud = 19200;
+HardwareSerial bridge_aux_uart(2);
+
+class ArduinoAuxTxIo final : public nexstar::AuxTxIo {
+ public:
+  explicit ArduinoAuxTxIo(HardwareSerial& uart) : uart_(uart) {}
+  bool busBusy() const override {
+    const bool clear_to_send = digitalRead(nexstar::BoardPins::kAuxCtsIn) ==
+        (nexstar::BoardPolarity::kAuxCtsActiveLow ? LOW : HIGH);
+    return !clear_to_send;
+  }
+  void setBusyAsserted(const bool asserted) override {
+    digitalWrite(nexstar::BoardPins::kAuxBusyAssert,
+                 asserted == nexstar::BoardPolarity::kAuxBusyAssertActiveHigh ? HIGH : LOW);
+  }
+  void setTxEnabled(const bool enabled) override {
+    digitalWrite(nexstar::BoardPins::kAuxTxEnable,
+                 enabled == nexstar::BoardPolarity::kAuxTxEnableActiveHigh ? HIGH : LOW);
+  }
+  std::size_t write(const std::uint8_t* bytes, const std::size_t size) override {
+    return uart_.write(bytes, size);
+  }
+  bool txComplete() const override { return uart_wait_tx_done(UART_NUM_2, 0) == ESP_OK; }
+ private:
+  HardwareSerial& uart_;
+};
+
+ArduinoAuxTxIo bridge_aux_tx_io(bridge_aux_uart);
+nexstar::AuxTransmitter bridge_aux_transmitter(bridge_aux_tx_io);
+nexstar::EchoTracker bridge_echo_tracker;
+nexstar::AuxStreamDecoder bridge_aux_decoder;
+bool bridge_echo_tracking = false;
+std::uint32_t bridge_echo_matches_at_start = 0;
+nexstar::AuxPacket bridge_active_packet;
+
+void RouteBridgeBytes(const nexstar::EchoForward& forward) {
+  for (std::uint16_t index = 0; index < forward.size; ++index) {
+    nexstar::AuxPacket packet{};
+    if (bridge_aux_decoder.feed(forward.bytes[index], millis(),
+                                nexstar::PacketOrigin::kAuxBus, packet) ==
+        nexstar::DecodeResult::kPacket) {
+      packet_router.routeFromAux(packet);
+    }
+  }
+}
+
+void ServiceUsbBridge() {
+  if (!bridge_echo_tracking && bridge_aux_transmitter.state() == nexstar::AuxTxState::kWrite) {
+    bridge_echo_matches_at_start = bridge_echo_tracker.matches();
+    bridge_echo_tracking = bridge_echo_tracker.begin(bridge_active_packet, millis());
+  }
+  if (bridge_echo_tracking) {
+    const nexstar::EchoForward forward = bridge_echo_tracker.poll(millis());
+    if (!bridge_echo_tracker.active()) {
+      bridge_echo_tracking = false;
+    }
+    RouteBridgeBytes(forward);
+  }
+
+  while (bridge_aux_uart.available() > 0) {
+    const int value = bridge_aux_uart.read();
+    if (value < 0) break;
+    nexstar::EchoForward forward{};
+    if (bridge_echo_tracking) {
+      forward = bridge_echo_tracker.feed(static_cast<std::uint8_t>(value), millis());
+      if (!bridge_echo_tracker.active()) {
+        bridge_echo_tracking = false;
+        if (bridge_echo_tracker.matches() > bridge_echo_matches_at_start) {
+          bridge_aux_transmitter.notifyEchoComplete();
+        }
+      }
+    } else {
+      forward.bytes[0] = static_cast<std::uint8_t>(value);
+      forward.size = 1;
+    }
+    RouteBridgeBytes(forward);
+  }
+
+  if (bridge_aux_transmitter.state() == nexstar::AuxTxState::kIdle) {
+    nexstar::AuxPacket packet{};
+    if (packet_router.takeForAux(packet)) {
+      bridge_active_packet = packet;
+      bridge_aux_transmitter.start(packet, nexstar::OperatingMode::kUsbBridge,
+                                   nexstar::AuxTxAuthorization::kUsbBridge, micros());
+    }
+  }
+  bridge_aux_transmitter.tick(micros());
+}
 #endif
 
 #if NEXSTAR_AUX_CAPTURE_ENABLED
@@ -451,6 +540,9 @@ void setup() {
   // UART0 is the binary Mount-USB protocol endpoint. Do not print here:
   // ROM reset bytes are unavoidable, but application traffic must stay clean.
   Serial.begin(kHostBaud);
+  bridge_aux_uart.setRxBufferSize(2048);
+  bridge_aux_uart.begin(kAuxBaud, SERIAL_8N1, nexstar::BoardPins::kAuxUartRx,
+                        nexstar::BoardPins::kAuxUartTx);
 #endif
 
 #if NEXSTAR_AUX_CONTROLLED_TEST_ENABLED
@@ -487,6 +579,8 @@ void setup() {
 
 void loop() {
 #if NEXSTAR_FIRMWARE_PROFILE == 1
+  host_transport.service(millis());
+  ServiceUsbBridge();
   host_transport.service(millis());
 #endif
 #if NEXSTAR_AUX_CAPTURE_ENABLED

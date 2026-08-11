@@ -124,6 +124,27 @@ void test_success_path_releases_at_uart_drain_then_requires_echo_and_response() 
   TEST_ASSERT_EQUAL_UINT32(1, transmitter.completedPackets());
 }
 
+void test_usb_bridge_accepts_valid_packets_and_completes_after_echo() {
+  FakeIo io;
+  io.tx_complete = true;
+  nexstar::AuxTransmitter transmitter(io);
+  auto packet = Packet();
+  packet.bytes[4] = 0x24;  // Bridge traffic is not limited to GET_VERSION.
+  packet.bytes[5] = nexstar::CalculateAuxChecksum(packet.bytes.data(), packet.size - 1);
+  TEST_ASSERT_TRUE(transmitter.start(packet, nexstar::OperatingMode::kUsbBridge,
+                                    nexstar::AuxTxAuthorization::kUsbBridge, 0));
+  AdvanceToDrain(transmitter);
+  transmitter.tick(104);
+  TEST_ASSERT_EQUAL(static_cast<int>(nexstar::AuxTxState::kEchoWait),
+                    static_cast<int>(transmitter.state()));
+  transmitter.notifyEchoComplete();
+  transmitter.tick(105);
+  TEST_ASSERT_EQUAL(static_cast<int>(nexstar::AuxTxState::kIdle),
+                    static_cast<int>(transmitter.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, transmitter.completedPackets());
+  TEST_ASSERT_FALSE(transmitter.notifyResponse(Response()));
+}
+
 void test_response_timeout_faults_after_busy_is_safely_released() {
   FakeIo io;
   io.tx_complete = true;
@@ -270,6 +291,7 @@ int main(int, char**) {
   RUN_TEST(test_listen_only_and_invalid_packets_never_transmit);
   RUN_TEST(
       test_success_path_releases_at_uart_drain_then_requires_echo_and_response);
+  RUN_TEST(test_usb_bridge_accepts_valid_packets_and_completes_after_echo);
   RUN_TEST(test_contention_retries_are_bounded_then_fault_safe);
   RUN_TEST(test_write_drain_and_echo_timeouts_force_safe_fault);
   RUN_TEST(test_uart_drain_and_echo_timeout_paths_force_safe_fault);

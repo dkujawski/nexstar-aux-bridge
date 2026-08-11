@@ -25,6 +25,7 @@ enum class AuxTxState : std::uint8_t {
 enum class AuxTxAuthorization : std::uint8_t {
   kProhibited,
   kControlledTest,
+  kUsbBridge,
 };
 
 enum class AuxTxFault : std::uint8_t {
@@ -87,8 +88,11 @@ class AuxTransmitter {
       ++metrics_.rejected_not_idle;
       return false;
     }
-    if (!MayTransmitAux(mode) ||
-        authorization != AuxTxAuthorization::kControlledTest) {
+    const bool controlled = mode == OperatingMode::kControlledTest &&
+                            authorization == AuxTxAuthorization::kControlledTest;
+    const bool bridge = mode == OperatingMode::kUsbBridge &&
+                        authorization == AuxTxAuthorization::kUsbBridge;
+    if (!MayTransmitAux(mode) || (!controlled && !bridge)) {
       ++metrics_.rejected_unauthorized;
       return false;
     }
@@ -96,11 +100,12 @@ class AuxTransmitter {
       ++metrics_.rejected_checksum;
       return false;
     }
-    if (!IsControlledReadOnlyQuery(packet)) {
+    if (controlled && !IsControlledReadOnlyQuery(packet)) {
       ++metrics_.rejected_policy;
       return false;
     }
     packet_ = packet;
+    controlled_transaction_ = controlled;
     attempts_ = 0;
     transition(AuxTxState::kBusWait, now_us);
     return true;
@@ -160,9 +165,11 @@ class AuxTransmitter {
           // reaches the application-level RX queue.
           io_.setTxEnabled(false);
           releaseBusy(now_us);
-          transition(echo_complete_ ? AuxTxState::kResponseWait
-                                    : AuxTxState::kEchoWait,
-                     now_us);
+          if (controlled_transaction_ && echo_complete_) {
+            transition(AuxTxState::kResponseWait, now_us);
+          } else {
+            transition(AuxTxState::kEchoWait, now_us);
+          }
         } else if (elapsed(now_us) >= timing_.uart_drain_timeout_us) {
           enterFault(now_us, AuxTxFault::kUartDrainTimeout);
         }
@@ -170,7 +177,12 @@ class AuxTransmitter {
 
       case AuxTxState::kEchoWait:
         if (echo_complete_) {
-          transition(AuxTxState::kResponseWait, now_us);
+          if (controlled_transaction_) {
+            transition(AuxTxState::kResponseWait, now_us);
+          } else {
+            ++metrics_.completed_packets;
+            transition(AuxTxState::kIdle, now_us);
+          }
         } else if (elapsed(now_us) >= timing_.echo_timeout_us) {
           enterFault(now_us, AuxTxFault::kEchoTimeout);
         }
@@ -196,7 +208,7 @@ class AuxTransmitter {
   void notifyEchoComplete() { echo_complete_ = true; }
 
   bool notifyResponse(const AuxPacket& response) {
-    if (state_ != AuxTxState::kResponseWait ||
+    if (!controlled_transaction_ || state_ != AuxTxState::kResponseWait ||
         !IsControlledVersionResponse(packet_, response)) {
       return false;
     }
@@ -295,6 +307,7 @@ class AuxTransmitter {
   bool echo_complete_{false};
   bool response_complete_{false};
   bool busy_claimed_{false};
+  bool controlled_transaction_{false};
 };
 
 }  // namespace nexstar
