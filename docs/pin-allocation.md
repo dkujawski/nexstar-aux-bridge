@@ -71,6 +71,20 @@ internal pullup or pulldown.
 - TFT backlight is active high and is held low until panel initialization
   completes.
 
+## TFT runtime behavior
+
+The display is optional. `esp32dev_listen_only_tft` and
+`esp32dev_diagnostic` enable it; the default listen-only, bridge, headless,
+and controlled-test images compile it out. The ST7735S module uses write-only
+SPI and does not acknowledge initialization, so firmware cannot distinguish an
+unplugged panel from a working one. Initialization is bounded and runs in the
+dedicated display task after AUX outputs have been made safe; a missing panel
+does not block bridge startup or AUX processing.
+
+With a panel fitted, initialization uses `INITR_MINI160x80`, 4 MHz SPI,
+rotation 1, and the module's observed RGB color order. The backlight remains
+off until the first boot screen has been rendered.
+
 ## Mandatory gates
 
 Do not connect this assembly to a telescope mount or enable transmission until:

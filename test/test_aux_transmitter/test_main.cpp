@@ -237,6 +237,7 @@ void test_transaction_timeout_bounds_busy_hold_and_records_fault() {
   TEST_ASSERT_FALSE(io.tx_enabled);
   TEST_ASSERT_FALSE(io.busy_asserted);
   TEST_ASSERT_EQUAL_UINT32(25, transmitter.metrics().maximum_busy_hold_us);
+  TEST_ASSERT_EQUAL_UINT32(1, transmitter.metrics().busy_timeouts);
 }
 
 void test_one_thousand_simulated_version_transactions_complete() {

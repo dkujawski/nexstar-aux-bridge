@@ -18,6 +18,7 @@ namespace {
 
 constexpr std::uint32_t kTftSpiHz = 4000000;
 constexpr std::uint32_t kMinimumRenderIntervalMs = 500;
+constexpr std::uint32_t kBootDurationMs = 1800;
 
 Adafruit_ST7735 tft(BoardPins::kTftChipSelect, BoardPins::kTftDataCommand,
                     BoardPins::kTftReset);
@@ -26,9 +27,9 @@ Adafruit_ST7735 tft(BoardPins::kTftChipSelect, BoardPins::kTftDataCommand,
 
 bool DisplayController::begin(const DisplaySnapshot& snapshot,
                               const std::uint32_t now_ms) {
-  // Keep the panel dark and deselected while its control pins and SPI bus are
-  // established. This diagnostic profile is the only profile that reaches
-  // this code until NEX-21 bench validation is complete.
+  // SPI TFT modules do not provide a reliable presence probe. Keep setup
+  // bounded and best-effort so an unplugged optional panel cannot delay or
+  // prevent the bridge from starting.
   pinMode(BoardPins::kTftBacklight, OUTPUT);
   digitalWrite(BoardPins::kTftBacklight, LOW);
   pinMode(BoardPins::kTftChipSelect, OUTPUT);
@@ -46,53 +47,107 @@ bool DisplayController::begin(const DisplaySnapshot& snapshot,
   tft.setTextWrap(false);
 
   available_ = true;
-  last_snapshot_ = snapshot;
+  last_view_ = model_.update(snapshot, now_ms);
+  showing_boot_ = true;
+  boot_started_ms_ = now_ms;
   last_render_ms_ = now_ms;
-  render(snapshot);
+  renderBoot(snapshot);
   digitalWrite(BoardPins::kTftBacklight, HIGH);
   return true;
 }
 
-void DisplayController::render(const DisplaySnapshot& snapshot) {
-  tft.fillScreen(ST77XX_BLACK);
-  tft.fillRect(0, 0, 160, 12, ST77XX_RED);
-  tft.fillRect(0, 12, 160, 12, ST77XX_GREEN);
-  tft.fillRect(0, 24, 160, 12, ST77XX_BLUE);
-
-  tft.setTextSize(1);
-  tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-  tft.setCursor(4, 42);
-  tft.print("NEXSTAR TFT TEST");
-  tft.setCursor(4, 54);
-  tft.print(ProfileLabel(snapshot.profile));
-  renderStatusLine(snapshot);
+bool DisplayController::ViewsEqual(const DisplayViewModel& lhs,
+                                   const DisplayViewModel& rhs) {
+  return SnapshotsEqual(lhs.snapshot, rhs.snapshot) &&
+         lhs.show_rx_activity == rhs.show_rx_activity &&
+         lhs.show_tx_activity == rhs.show_tx_activity &&
+         lhs.show_fault_overlay == rhs.show_fault_overlay;
 }
 
-void DisplayController::renderStatusLine(const DisplaySnapshot& snapshot) {
-  // Updating only this row avoids a visible full-screen flash whenever AUX
-  // traffic changes the packet counter.
-  tft.fillRect(0, 64, 160, 16, ST77XX_BLACK);
+void DisplayController::renderBoot(const DisplaySnapshot& snapshot) {
+  tft.fillScreen(ST77XX_BLACK);
   tft.setTextSize(1);
   tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+  tft.setCursor(4, 4);
+  tft.print("NEXSTAR AUX BRIDGE");
+  tft.setCursor(4, 20);
+  tft.print("FW " NEXSTAR_FIRMWARE_VERSION);
+  tft.setCursor(4, 34);
+  tft.print("ESP32 DEVKIT V1");
+  tft.setCursor(4, 48);
+  tft.print("MODE ");
+  tft.print(ProfileLabel(snapshot.profile));
   tft.setCursor(4, 66);
-  tft.printf("RX:%lu SAFE", static_cast<unsigned long>(snapshot.rx_packets));
+  tft.print("AUX OUTPUTS SAFE");
+}
+
+void DisplayController::renderMain(const DisplayViewModel& view) {
+  const DisplaySnapshot& snapshot = view.snapshot;
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+  tft.setCursor(4, 4);
+  tft.print(ProfileLabel(snapshot.profile));
+  tft.setCursor(4, 18);
+  tft.printf("AUX:%s", snapshot.aux_enabled ? "ACTIVE" : "SAFE");
+  tft.setCursor(4, 30);
+  tft.printf("HOST:%s%s", snapshot.host_ready ? "READY" : "WAIT",
+             snapshot.host_active ? " *" : "");
+  tft.setCursor(4, 44);
+  tft.printf("RX%c %lu TX%c %lu", view.show_rx_activity ? '*' : ':',
+             static_cast<unsigned long>(snapshot.rx_packets),
+             view.show_tx_activity ? '*' : ':',
+             static_cast<unsigned long>(snapshot.tx_packets));
+  tft.setCursor(4, 58);
+  tft.printf("ERR:%lu BUSY:%lu", static_cast<unsigned long>(snapshot.error_count),
+             static_cast<unsigned long>(snapshot.busy_timeout_count));
+  tft.setCursor(4, 72);
+  tft.print(snapshot.profile == FirmwareProfile::kListenOnly
+                ? "LISTEN-ONLY: TX LOCKED"
+                : "STATUS SNAPSHOT");
+}
+
+void DisplayController::renderFault(const DisplayViewModel& view) {
+  const DisplaySnapshot& snapshot = view.snapshot;
+  tft.fillScreen(ST77XX_BLACK);
+  tft.fillRect(0, 0, 160, 14, ST77XX_RED);
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+  tft.setCursor(4, 3);
+  tft.print("AUX FAULT - SAFE");
+  tft.setCursor(4, 24);
+  tft.printf("CODE:%u ERR:%lu", snapshot.fault_code,
+             static_cast<unsigned long>(snapshot.error_count));
+  tft.setCursor(4, 40);
+  tft.printf("BUSY TIMEOUTS:%lu",
+             static_cast<unsigned long>(snapshot.busy_timeout_count));
+  tft.setCursor(4, 56);
+  tft.print("TX DISABLED");
 }
 
 void DisplayController::update(const DisplaySnapshot& snapshot,
                                const std::uint32_t now_ms) {
-  if (!available_ || SnapshotsEqual(snapshot, last_snapshot_) ||
-      now_ms - last_render_ms_ < kMinimumRenderIntervalMs) {
+  if (!available_) {
     return;
   }
-  const bool static_content_changed =
-      snapshot.profile != last_snapshot_.profile ||
-      snapshot.state != last_snapshot_.state;
-  last_snapshot_ = snapshot;
+  const DisplayViewModel view = model_.update(snapshot, now_ms);
+  if (showing_boot_) {
+    if (now_ms - boot_started_ms_ < kBootDurationMs) {
+      return;
+    }
+    showing_boot_ = false;
+  } else if (ViewsEqual(view, last_view_)) {
+    return;
+  }
+  if (now_ms - last_render_ms_ < kMinimumRenderIntervalMs) {
+    return;
+  }
+  last_view_ = view;
   last_render_ms_ = now_ms;
-  if (static_content_changed) {
-    render(snapshot);
+  if (view.show_fault_overlay) {
+    renderFault(view);
   } else {
-    renderStatusLine(snapshot);
+    renderMain(view);
   }
 }
 
@@ -105,9 +160,16 @@ bool DisplayController::begin(const DisplaySnapshot&, std::uint32_t) {
 
 void DisplayController::update(const DisplaySnapshot&, std::uint32_t) {}
 
-void DisplayController::render(const DisplaySnapshot&) {}
+void DisplayController::renderBoot(const DisplaySnapshot&) {}
 
-void DisplayController::renderStatusLine(const DisplaySnapshot&) {}
+void DisplayController::renderMain(const DisplayViewModel&) {}
+
+void DisplayController::renderFault(const DisplayViewModel&) {}
+
+bool DisplayController::ViewsEqual(const DisplayViewModel&,
+                                   const DisplayViewModel&) {
+  return true;
+}
 
 #endif
 

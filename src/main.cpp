@@ -393,6 +393,43 @@ void ServiceControlledTest() {
 }
 #endif
 
+void RefreshDisplaySnapshot() {
+#if NEXSTAR_FIRMWARE_PROFILE == 1
+  const auto& metrics = host_transport.metrics();
+  static std::uint32_t last_host_bytes = 0;
+  const std::uint32_t host_bytes =
+      metrics.received_bytes + metrics.transmitted_bytes;
+  snapshot.host_ready = true;
+  snapshot.host_active = host_bytes != last_host_bytes;
+  last_host_bytes = host_bytes;
+  snapshot.tx_packets = metrics.decoded_packets;
+  snapshot.error_count = metrics.malformed_packets + metrics.rejected_packets;
+#endif
+
+#if NEXSTAR_AUX_CAPTURE_ENABLED
+  snapshot.host_ready = false;
+  snapshot.host_active = false;
+  snapshot.aux_enabled = false;
+  snapshot.rx_packets = aux_frames;
+  snapshot.error_count = aux_rejected;
+#endif
+
+#if NEXSTAR_AUX_CONTROLLED_TEST_ENABLED
+  const auto& metrics = aux_transmitter.metrics();
+  static std::uint32_t last_completed_packets = 0;
+  snapshot.aux_enabled = query_active;
+  snapshot.tx_active = metrics.completed_packets != last_completed_packets;
+  last_completed_packets = metrics.completed_packets;
+  snapshot.tx_packets = metrics.completed_packets;
+  snapshot.error_count = metrics.faults;
+  snapshot.busy_timeout_count = metrics.busy_timeouts;
+  snapshot.fault_code = static_cast<std::uint8_t>(aux_transmitter.lastFault());
+  snapshot.state = aux_transmitter.lastFault() == nexstar::AuxTxFault::kNone
+                       ? nexstar::ProjectState::kSafeBaseline
+                       : nexstar::ProjectState::kFault;
+#endif
+}
+
 }  // namespace
 
 void setup() {
@@ -440,7 +477,9 @@ void setup() {
   const bool display_ready = display.begin(snapshot);
 
 #if NEXSTAR_DISPLAY_DIAGNOSTICS
-  Serial.println(display_ready ? "DISPLAY:OK" : "DISPLAY:NOT_FOUND");
+  // SPI panels cannot acknowledge their presence. This confirms that the
+  // optional display task is active; it does not claim that a panel is wired.
+  Serial.println(display_ready ? "DISPLAY:ACTIVE" : "DISPLAY:DISABLED");
 #else
   (void)display_ready;
 #endif
@@ -461,7 +500,13 @@ void loop() {
   const std::uint32_t now = millis();
   if (now - last_display_publish_ms >= kDisplayPublishIntervalMs) {
     last_display_publish_ms = now;
+    RefreshDisplaySnapshot();
     display.publish(snapshot);
+    // Activity is sampled into the copied snapshot above. Clear the pulse so
+    // the model can expire its indicator without a redraw per packet.
+    snapshot.rx_active = false;
+    snapshot.tx_active = false;
+    snapshot.host_active = false;
   }
 #if NEXSTAR_AUX_CONTROLLED_TEST_ENABLED
   // The transmitter's safety timing is in microseconds. A one-tick sleep here

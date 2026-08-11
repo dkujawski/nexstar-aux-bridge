@@ -46,6 +46,7 @@ struct AuxTxMetrics {
   std::uint32_t contention_retries{0};
   std::uint32_t completed_packets{0};
   std::uint32_t faults{0};
+  std::uint32_t busy_timeouts{0};
   std::uint32_t recoveries{0};
   std::uint32_t maximum_busy_hold_us{0};
 };
@@ -254,6 +255,9 @@ class AuxTransmitter {
     forceSafe();
     last_fault_ = fault;
     ++metrics_.faults;
+    if (fault == AuxTxFault::kTransactionTimeout) {
+      ++metrics_.busy_timeouts;
+    }
     transition(AuxTxState::kFault, now_us);
   }
 

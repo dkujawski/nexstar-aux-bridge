@@ -26,8 +26,12 @@ The firmware remains deliberately fail-closed:
 The former Heltec OLED implementation is retired. The external 0.96-inch
 80x160 ST7735S TFT has passed supply, initialization, rotation, color-order,
 backlight, steady-update, and listen-only AUX-interference checks. It is enabled
-only in the diagnostic and dedicated `esp32dev_listen_only_tft` validation
-profiles while the ordinary bridge and listen-only profiles remain headless.
+only in the diagnostic and dedicated `esp32dev_listen_only_tft` profiles while
+the ordinary bridge and listen-only profiles remain headless. The TFT image
+shows a short boot screen followed by compact mode, AUX, host, packet, error,
+and BUSY-timeout status; listen-only mode explicitly states that TX is locked.
+Fault information is shown temporarily without performing display work in the
+AUX path.
 
 The default build is listen-only. Pin allocation and mandatory bench checks are
 documented in [`docs/pin-allocation.md`](docs/pin-allocation.md); the candidate
@@ -61,6 +65,18 @@ pio run -e esp32dev_listen_only -t upload --upload-port COM6
 
 Confirm the port before running these commands; Windows can assign a different
 COM number after reconnecting the device.
+
+To use the optional display, upload its dedicated image instead of the default
+headless image:
+
+```text
+pio run -e esp32dev_listen_only_tft -t upload --upload-port COM6
+```
+
+The ST7735S module cannot report whether it is electrically present over its
+write-only SPI connection. A missing or failed display therefore cannot block
+the bridge: display setup is bounded, runs in a separate task, and all normal
+profiles retain a compile-time display-disabled build.
 
 The NEX-16 image is deliberately separate from every bridge profile. It boots
 with TX and BUSY released. `SELECT <destination-hex>` records the sole allowed
