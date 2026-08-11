@@ -9,7 +9,15 @@ connect ESP32 GPIO pins directly to a mount.
 
 ## Current state
 
-The firmware remains deliberately fail-closed:
+The wired bridge is a verified working prototype. On 2026-08-11 the normal
+`esp32dev` profile forwarded the host GET_VERSION request
+`3B 03 03 10 FE EC` to a live mount and returned its checksum-valid response
+`3B 05 10 03 FE 05 14 D1` over the same CP2102/UART0 endpoint. The captures
+and exact timing are recorded in [`docs/bench-validation.md`](docs/bench-validation.md).
+Extended reliability, reconnect, and display testing remain deferred.
+
+The firmware remains deliberately fail-closed outside an authorized bridge
+transmission:
 
 - candidate AUX control pins are initialized to safe states before services
   start, while RX/TX bus operation remains disabled;
@@ -20,8 +28,10 @@ The firmware remains deliberately fail-closed:
   endpoint. It incrementally validates host frames into bounded queues and
   uses nonblocking partial writes for AUX-to-host traffic; it emits no
   application banner or diagnostics on that protocol channel.
-- no bridge profile presently enables AUX TX; validated host packets remain
-  queued until the wired integration safety gates are completed.
+- the normal bridge profile sends checksum-valid host packets through the
+  protected AUX interface only after BUSY arbitration, and forwards valid
+  non-echo AUX packets back to the host; TX and BUSY return to their safe,
+  released state after transmission.
 
 The former Heltec OLED implementation is retired. The external 0.96-inch
 80x160 ST7735S TFT has passed supply, initialization, rotation, color-order,
@@ -38,7 +48,7 @@ documented in [`docs/pin-allocation.md`](docs/pin-allocation.md); the candidate
 TX path must not be enabled until those checks pass.
 
 This makes the image safe to provision on a board that was previously used by
-another project, but it is not yet a functional AUX bridge.
+another project while providing a functional wired AUX bridge.
 
 ## Build and test
 
