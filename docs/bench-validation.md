@@ -24,6 +24,34 @@ working-prototype evidence; reconnect, soak, and display comparison work is
 deferred to NEX-23. No compatible local telescope host application was
 installed, so the optional application-level identity/status check is deferred.
 
+## NEX-23 — Bounded recovery preparation
+
+Date: 2026-08-11
+
+The remaining conditioned-RX glitch is characterized, not remediated. In the
+corrected passive comparison, raw RX remained HIGH while conditioned RX
+produced repeated BUSY-correlated LOW intervals. The active-test hold therefore
+remains in effect: do not start reconnect batches, timeout injections, a soak,
+or TFT comparison until a powered passive raw-versus-conditioned RX capture
+shows equivalence.
+
+Firmware hardening completed without physical bus activity:
+
+- incomplete host frames now expire after the bounded inter-byte timeout even
+  if the USB-UART stream goes idle; the next host session begins from a clean
+  parser state and records the timeout counter;
+- a bridge AUX fault holds TX and BUSY released for 2 ms, discards the failed
+  packet and partial echo state, then accepts a fresh host request without a
+  mount or bridge power cycle; it never automatically retries the failed
+  packet; and
+- native tests cover host reconnect after a partial frame and response-timeout
+  recovery, including safe outputs, preserved fault metrics, and no replay.
+
+This is software evidence only. The following hardware procedures remain
+pending after the conditioned-input repair: one bounded USB reconnect/reset
+sequence, one forced echo timeout, one forced response timeout, then the long
+soak and TFT/headless comparison.
+
 ## NEX-11 — USB-UART host transport reset and reconnect check
 
 Date: 2026-08-10

@@ -79,6 +79,15 @@ class EchoTracker {
     return forward;
   }
 
+  // A transmitter recovery abandons any partial physical echo. Do not forward
+  // it into the packet decoder: the failed transaction must not influence the
+  // next host request.
+  void cancel() {
+    expected_size_ = 0;
+    matched_size_ = 0;
+    active_ = false;
+  }
+
   [[nodiscard]] bool active() const { return active_; }
   [[nodiscard]] std::uint32_t matches() const { return matches_; }
   [[nodiscard]] std::uint32_t mismatches() const { return mismatches_; }

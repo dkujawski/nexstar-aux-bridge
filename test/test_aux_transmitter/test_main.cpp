@@ -168,6 +168,48 @@ void test_response_timeout_faults_after_busy_is_safely_released() {
   TEST_ASSERT_EQUAL_UINT32(0, transmitter.completedPackets());
 }
 
+void test_response_timeout_recovers_without_replaying_failed_packet() {
+  FakeIo io;
+  io.tx_complete = true;
+  nexstar::AuxTxTiming timing{};
+  timing.response_timeout_us = 10;
+  nexstar::AuxTransmitter transmitter(io, timing);
+  TEST_ASSERT_TRUE(transmitter.start(Packet(), nexstar::OperatingMode::kControlledTest,
+                                    nexstar::AuxTxAuthorization::kControlledTest, 0));
+  AdvanceToDrain(transmitter);
+  transmitter.tick(104);
+  transmitter.notifyEchoComplete();
+  transmitter.tick(105);
+  transmitter.tick(115);
+  TEST_ASSERT_EQUAL(static_cast<int>(nexstar::AuxTxState::kFault),
+                    static_cast<int>(transmitter.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, io.writes);
+
+  transmitter.recover(200);
+  TEST_ASSERT_EQUAL(static_cast<int>(nexstar::AuxTxState::kIdle),
+                    static_cast<int>(transmitter.state()));
+  TEST_ASSERT_FALSE(io.tx_enabled);
+  TEST_ASSERT_FALSE(io.busy_asserted);
+  TEST_ASSERT_EQUAL_UINT32(1, io.writes);
+
+  TEST_ASSERT_TRUE(transmitter.start(Packet(), nexstar::OperatingMode::kControlledTest,
+                                    nexstar::AuxTxAuthorization::kControlledTest, 200));
+  transmitter.tick(200);
+  transmitter.tick(201);
+  transmitter.tick(301);
+  transmitter.tick(302);
+  transmitter.tick(303);
+  transmitter.tick(304);
+  transmitter.notifyEchoComplete();
+  transmitter.tick(305);
+  TEST_ASSERT_TRUE(transmitter.notifyResponse(Response()));
+  transmitter.tick(306);
+  TEST_ASSERT_EQUAL_UINT32(2, io.writes);
+  TEST_ASSERT_EQUAL_UINT32(1, transmitter.completedPackets());
+  TEST_ASSERT_EQUAL_UINT32(1, transmitter.metrics().faults);
+  TEST_ASSERT_EQUAL_UINT32(1, transmitter.metrics().recoveries);
+}
+
 void test_contention_retries_are_bounded_then_fault_safe() {
   FakeIo io;
   io.bus_busy = true;
@@ -297,6 +339,7 @@ int main(int, char**) {
   RUN_TEST(test_uart_drain_and_echo_timeout_paths_force_safe_fault);
   RUN_TEST(test_transaction_timeout_bounds_busy_hold_and_records_fault);
   RUN_TEST(test_response_timeout_faults_after_busy_is_safely_released);
+  RUN_TEST(test_response_timeout_recovers_without_replaying_failed_packet);
   RUN_TEST(test_one_thousand_simulated_version_transactions_complete);
   return UNITY_END();
 }

@@ -88,6 +88,24 @@ void test_malformed_host_packet_never_enters_aux_queue() {
   TEST_ASSERT_EQUAL_UINT32(1, transport.metrics().malformed_packets);
 }
 
+void test_partial_host_frame_expires_while_disconnected_then_reconnects_cleanly() {
+  FakeStream stream;
+  nexstar::PacketRouter<2, 2> router;
+  nexstar::HostTransport<2, 2> transport(stream, router);
+  const auto packet = Packet(nexstar::PacketOrigin::kHost);
+
+  stream.append(packet.bytes.data(), 2);
+  transport.service(100);
+  transport.service(100 + nexstar::AuxStreamDecoder::kDefaultInterByteTimeoutMs + 1);
+  TEST_ASSERT_EQUAL_UINT32(1, transport.metrics().inter_byte_timeouts);
+
+  stream.append(packet.bytes.data(), packet.size);
+  transport.service(200);
+  nexstar::AuxPacket output{};
+  TEST_ASSERT_TRUE(router.takeForAux(output));
+  TEST_ASSERT_EQUAL_UINT16(packet.size, output.size);
+}
+
 void test_partial_host_writes_are_deferred_without_blocking() {
   FakeStream stream;
   stream.setWriteLimit(2);
@@ -111,6 +129,7 @@ int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_host_input_is_decoded_before_entering_aux_queue);
   RUN_TEST(test_malformed_host_packet_never_enters_aux_queue);
+  RUN_TEST(test_partial_host_frame_expires_while_disconnected_then_reconnects_cleanly);
   RUN_TEST(test_partial_host_writes_are_deferred_without_blocking);
   return UNITY_END();
 }

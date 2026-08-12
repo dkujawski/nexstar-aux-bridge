@@ -14,7 +14,10 @@ The wired bridge is a verified working prototype. On 2026-08-11 the normal
 `3B 03 03 10 FE EC` to a live mount and returned its checksum-valid response
 `3B 05 10 03 FE 05 14 D1` over the same CP2102/UART0 endpoint. The captures
 and exact timing are recorded in [`docs/bench-validation.md`](docs/bench-validation.md).
-Extended reliability, reconnect, and display testing remain deferred.
+NEX-23 adds native bounded-recovery coverage for partial host-frame reconnects
+and AUX timeout recovery. Hardware reconnect, long soak, and TFT comparison
+remain pending; they must not be represented as physical validation while the
+conditioned-RX release glitch is unresolved.
 
 The firmware remains deliberately fail-closed outside an authorized bridge
 transmission:
