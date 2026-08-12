@@ -104,6 +104,14 @@ nexstar::AuxStreamDecoder bridge_aux_decoder;
 bool bridge_echo_tracking = false;
 std::uint32_t bridge_echo_matches_at_start = 0;
 nexstar::AuxPacket bridge_active_packet;
+bool bridge_recovery_pending = false;
+std::uint32_t bridge_fault_started_us = 0;
+constexpr std::uint32_t kBridgeRecoveryBackoffUs = 2000;
+
+bool ElapsedUs(const std::uint32_t now_us, const std::uint32_t then_us,
+               const std::uint32_t duration_us) {
+  return static_cast<std::uint32_t>(now_us - then_us) >= duration_us;
+}
 
 void RouteBridgeBytes(const nexstar::EchoForward& forward) {
   for (std::uint16_t index = 0; index < forward.size; ++index) {
@@ -156,7 +164,27 @@ void ServiceUsbBridge() {
                                    nexstar::AuxTxAuthorization::kUsbBridge, micros());
     }
   }
-  bridge_aux_transmitter.tick(micros());
+  const std::uint32_t now_us = micros();
+  bridge_aux_transmitter.tick(now_us);
+
+  if (bridge_aux_transmitter.state() == nexstar::AuxTxState::kFault) {
+    if (!bridge_recovery_pending) {
+      // A failed packet is intentionally discarded. After a short safe
+      // interval, make the bridge ready for a new host request without a
+      // mount or bridge power cycle.
+      bridge_recovery_pending = true;
+      bridge_fault_started_us = now_us;
+    } else if (ElapsedUs(now_us, bridge_fault_started_us,
+                         kBridgeRecoveryBackoffUs)) {
+      bridge_echo_tracker.cancel();
+      bridge_echo_tracking = false;
+      bridge_aux_decoder.reset();
+      bridge_aux_transmitter.recover(now_us);
+      bridge_recovery_pending = false;
+    }
+  } else {
+    bridge_recovery_pending = false;
+  }
 }
 #endif
 

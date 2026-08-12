@@ -64,9 +64,7 @@ class AuxStreamDecoder {
 
   DecodeResult feed(const std::uint8_t byte, const std::uint32_t now_ms,
                     const PacketOrigin origin, AuxPacket& output) {
-    if (size_ != 0 && Elapsed(now_ms, last_byte_ms_) > inter_byte_timeout_ms_) {
-      reset();
-    }
+    expire(now_ms);
     last_byte_ms_ = now_ms;
 
     if (size_ == 0) {
@@ -120,6 +118,17 @@ class AuxStreamDecoder {
 
     output = candidate;
     return DecodeResult::kPacket;
+  }
+
+  // Expire an incomplete frame even when the stream is otherwise idle. This
+  // prevents a host disconnect in the middle of a frame from leaving stale
+  // parser state around until the next host reconnect supplies a byte.
+  bool expire(const std::uint32_t now_ms) {
+    if (size_ == 0 || Elapsed(now_ms, last_byte_ms_) <= inter_byte_timeout_ms_) {
+      return false;
+    }
+    reset();
+    return true;
   }
 
   void reset() {

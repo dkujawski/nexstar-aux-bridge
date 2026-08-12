@@ -219,6 +219,10 @@ class AuxTransmitter {
   void recover(const std::uint32_t now_us) {
     forceSafe();
     last_fault_ = AuxTxFault::kNone;
+    attempts_ = 0;
+    echo_complete_ = false;
+    response_complete_ = false;
+    controlled_transaction_ = false;
     ++metrics_.recoveries;
     transition(AuxTxState::kIdle, now_us);
   }

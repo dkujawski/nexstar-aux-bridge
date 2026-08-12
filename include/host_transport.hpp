@@ -23,6 +23,7 @@ struct HostTransportMetrics {
   std::uint32_t received_bytes{0};
   std::uint32_t decoded_packets{0};
   std::uint32_t malformed_packets{0};
+  std::uint32_t inter_byte_timeouts{0};
   std::uint32_t rejected_packets{0};
   std::uint32_t transmitted_bytes{0};
   std::uint32_t write_backpressure{0};
@@ -39,6 +40,9 @@ class HostTransport {
   // service. Call it frequently from the bridge loop.
   void service(const std::uint32_t now_ms,
                const std::size_t max_read_bytes = 64) {
+    if (decoder_.expire(now_ms)) {
+      ++metrics_.inter_byte_timeouts;
+    }
     for (std::size_t count = 0;
          count < max_read_bytes && stream_.available() > 0; ++count) {
       const int value = stream_.read();
