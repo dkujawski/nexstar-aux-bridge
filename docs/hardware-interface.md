@@ -1,11 +1,13 @@
 # AUX electrical interface
 
-Status: **bench validated for USB-powered listen-only use; active AUX
-transmission remains prohibited**
+Status: **USB-powered wired working prototype verified; extended hardening
+remains deferred**
 
 This document is the authoritative NEX-14 interface description for the
-USB-powered, listen-only breadboard prototype. Active transmission requires a
-separate controlled-transmission gate.
+USB-powered breadboard prototype. The normal bridge path completed one
+end-to-end, read-only mount transaction using this protected interface; see
+the NEX-17 evidence in `docs/bench-validation.md`. Production/reliability
+qualification remains a separate gate.
 
 ## Fixed constraints
 

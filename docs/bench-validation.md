@@ -1,5 +1,29 @@
 # Bench validation record
 
+## NEX-17 — Wired working-prototype acceptance
+
+Date: 2026-08-11
+
+The normal `esp32dev` bridge firmware was flashed to the USB-powered ESP32
+DevKit V1 at `COM6`. A local host opened UART0 at 19,200 baud, deasserted
+DTR/RTS, sent one read-only GET_VERSION request, and received the complete
+checksum-valid mount response without a telescope power cycle.
+
+| Direction | Frame | Evidence |
+| --- | --- | --- |
+| Host → mount | `3B 03 03 10 FE EC` | Protected TX and raw AUX bus at 5.652828250 s |
+| Mount → host | `3B 05 10 03 FE 05 14 D1` | Raw AUX bus at 5.656819250 s and CP2102/UART0 receive |
+
+`docs/captures/nex17-one-retry-2026-08-11.sr` records the initial failure:
+BUSY release caused a false conditioned-RX start that hid the response preamble
+from UART2. After breadboard connection adjustments,
+`docs/captures/nex17-one-retry-bb-adjusted-2026-08-11.sr` records the successful
+transaction. A brief conditioned-RX glitch remains visible near BUSY release,
+but UART2 rejected it and decoded the real response. This is sufficient
+working-prototype evidence; reconnect, soak, and display comparison work is
+deferred to NEX-23. No compatible local telescope host application was
+installed, so the optional application-level identity/status check is deferred.
+
 ## NEX-11 — USB-UART host transport reset and reconnect check
 
 Date: 2026-08-10
